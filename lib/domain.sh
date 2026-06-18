@@ -41,25 +41,72 @@ cmd_domain() {
     esac
 }
 
+# vhost config'i seçili profil + meta ile üret ve yaz.
+# mode: "http" → vhost.conf.tpl, "ssl" → vhost-ssl.conf.tpl
+# SITES_AVAILABLE env'i test için override edilebilir (varsayılan /etc/nginx/sites-available).
+_domain_write_vhost() {
+    local domain="$1" php_version="$2" profile="$3" mode="$4"
+    local sites="${SITES_AVAILABLE:-/etc/nginx/sites-available}"
+    local sname
+    sname=$(safe_name "$domain")
+    local tpl="${SRVCTL_TEMPLATES}/nginx/vhost.conf.tpl"
+    [[ "$mode" == "ssl" ]] && tpl="${SRVCTL_TEMPLATES}/nginx/vhost-ssl.conf.tpl"
+
+    rate_profile_load "$profile"
+
+    # Hassas yollar: meta override yoksa varsayılan
+    local sensitive="${DEFAULT_SENSITIVE_PATHS}"
+    read_meta "$domain"
+    [[ -n "${SENSITIVE_PATHS:-}" ]] && sensitive="${SENSITIVE_PATHS}"
+
+    render_template "$tpl" \
+        "DOMAIN=${domain}" \
+        "SAFE_NAME=${sname}" \
+        "WEB_ROOT=${WEB_ROOT}" \
+        "PHP_VERSION=${php_version}" \
+        "RL_REQ_ZONE=${RL_REQ_ZONE}" \
+        "RL_REQ_BURST=${RL_REQ_BURST}" \
+        "RL_LOGIN_ZONE=${RL_LOGIN_ZONE}" \
+        "RL_LOGIN_BURST=${RL_LOGIN_BURST}" \
+        "RL_CONN=${RL_CONN}" \
+        "RL_SENSITIVE_PATHS=${sensitive}" \
+        > "${sites}/${domain}.conf"
+}
+
 # ═══════════════════════════════════════════════
 #  DOMAIN ADD — 10 adımda tam güvenlikli domain
 # ═══════════════════════════════════════════════
 _domain_add() {
+    # Argümansız (pozisyonel domain yok) çağrı → interaktif sihirbaz
+    local _has_domain=false _a
+    for _a in "$@"; do [[ "$_a" != -* ]] && _has_domain=true; done
+    if [[ "$_has_domain" == false ]]; then
+        _domain_add_wizard
+        return
+    fi
+
     local domain=""
     local php_version="${DEFAULT_PHP_VERSION}"
+    local rate_profile="standard"
+    local do_ssl=true
+    local sensitive_paths="${DEFAULT_SENSITIVE_PATHS}"
 
     # Argümanları parse et
     for arg in "$@"; do
         case "$arg" in
-            --php=*) php_version="${arg#--php=}" ;;
+            --php=*)       php_version="${arg#--php=}" ;;
+            --rate=*)      rate_profile="${arg#--rate=}" ;;
+            --sensitive=*) sensitive_paths="${arg#--sensitive=}" ;;
+            --no-ssl)      do_ssl=false ;;
             -*) warn "Bilinmeyen seçenek: ${arg}" ;;
             *) domain="$arg" ;;
         esac
     done
 
-    [[ -z "$domain" ]] && error "Domain belirtilmedi. Kullanım: srvctl domain add example.com [--php=8.3]"
+    [[ -z "$domain" ]] && error "Domain belirtilmedi. Kullanım: srvctl domain add example.com [--php=8.3] [--rate=standard]"
     domain_exists "$domain" && error "Domain zaten mevcut: ${domain}"
     php_version_exists "$php_version" || error "PHP ${php_version} kurulu değil. Önce kurun."
+    rate_profile="$(rate_profile_resolve "$rate_profile")"
 
     # Değişkenler
     local sname
@@ -182,14 +229,12 @@ _domain_add() {
 
     # ─── 5. Nginx Vhost ───
     current=$((current + 1))
-    step "${current}/${total}" "Nginx vhost oluşturuluyor..."
+    step "${current}/${total}" "Nginx vhost oluşturuluyor... (profil: ${rate_profile})"
 
-    render_template "${SRVCTL_TEMPLATES}/nginx/vhost.conf.tpl" \
-        "DOMAIN=${domain}" \
-        "SAFE_NAME=${sname}" \
-        "WEB_ROOT=${WEB_ROOT}" \
-        "PHP_VERSION=${php_version}" \
-        > "/etc/nginx/sites-available/${domain}.conf"
+    write_meta "$domain" "RATE_PROFILE" "$rate_profile"
+    write_meta "$domain" "SENSITIVE_PATHS" "$sensitive_paths"
+
+    _domain_write_vhost "$domain" "$php_version" "$rate_profile" http
 
     ln -sf "/etc/nginx/sites-available/${domain}.conf" \
         "/etc/nginx/sites-enabled/${domain}.conf"
@@ -200,25 +245,22 @@ _domain_add() {
 
     # ─── 6. SSL (Let's Encrypt) ───
     current=$((current + 1))
-    step "${current}/${total}" "SSL sertifikası alınıyor..."
+    if [[ "$do_ssl" == true ]]; then
+        step "${current}/${total}" "SSL sertifikası alınıyor..."
+        if certbot --nginx -d "${domain}" \
+            --non-interactive --agree-tos --redirect \
+            -m "admin@${domain}" 2>/dev/null; then
 
-    if certbot --nginx -d "${domain}" \
-        --non-interactive --agree-tos --redirect \
-        -m "admin@${domain}" 2>/dev/null; then
-
-        # SSL aldıktan sonra özel SSL template'i uygula
-        render_template "${SRVCTL_TEMPLATES}/nginx/vhost-ssl.conf.tpl" \
-            "DOMAIN=${domain}" \
-            "SAFE_NAME=${sname}" \
-            "WEB_ROOT=${WEB_ROOT}" \
-            "PHP_VERSION=${php_version}" \
-            > "/etc/nginx/sites-available/${domain}.conf"
-
-        nginx_test && systemctl reload nginx
-        success "SSL aktif (Let's Encrypt + HSTS)"
+            _domain_write_vhost "$domain" "$php_version" "$rate_profile" ssl
+            nginx_test && systemctl reload nginx
+            success "SSL aktif (Let's Encrypt + HSTS)"
+        else
+            warn "SSL alınamadı — DNS ayarlarını kontrol edin"
+            warn "Sonra çalıştırın: certbot --nginx -d ${domain}"
+        fi
     else
-        warn "SSL alınamadı — DNS ayarlarını kontrol edin"
-        warn "Sonra çalıştırın: certbot --nginx -d ${domain}"
+        step "${current}/${total}" "SSL atlandı (--no-ssl)"
+        info "Sonra almak için: certbot --nginx -d ${domain}"
     fi
 
     # ─── 7. AppArmor Profili ───
@@ -288,6 +330,10 @@ _domain_add() {
         > "/etc/logrotate.d/srvctl-${sname}"
 
     success "Logrotate aktif"
+    # ─── 11. cgroups slice + seccomp (Faz 1) ───
+    _apply_cgroups_slice "${domain}" "${sname}"
+    _apply_seccomp_hardening "${php_version}"
+    success "cgroups slice + seccomp uygulandı"
 
     # ─── Credentials Dosyası ───
     cat > "${base}/.credentials" << CREDS
@@ -404,6 +450,11 @@ _domain_remove() {
     # 7. Logrotate
     rm -f "/etc/logrotate.d/srvctl-${sname}"
 
+    # 7.5 cgroups slice
+    systemctl stop "srvctl-${sname}.slice" 2>/dev/null || true
+    rm -f "/etc/systemd/system/srvctl-${sname}.slice"
+    systemctl daemon-reload 2>/dev/null || true
+    
     # 8. Dosyalar
     rm -rf "${base}"
 
@@ -560,4 +611,378 @@ _domain_info() {
     echo -e "  Dosya izinleri: ${perm_status}"
 
     echo ""
+}
+# ═══════════════════════════════════════════════════════════════
+#  domain.sh — EK BLOK (Faz 1 cgroups/seccomp helpers + Faz 2 ops)
+#
+#  Bu blok mevcut lib/domain.sh dosyanızın SONUNA eklenir.
+#  cmd_domain() dispatcher'ı bu fonksiyonları zaten çağırıyor.
+#  _domain_add içine 2 satırlık çağrı eklemeniz gerekir (bkz. INTEGRATION.md).
+# ═══════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────
+#  Helper: Per-domain cgroups v2 slice oluştur (Faz 1)
+#  systemd "srvctl-<sname>.slice" otomatik olarak srvctl.slice altına girer.
+# ───────────────────────────────────────────────────────────────
+_apply_cgroups_slice() {
+    local domain="$1" sname="$2"
+    local slice_file="/etc/systemd/system/srvctl-${sname}.slice"
+
+    # Template varsa kullan, yoksa güvenli varsayılanlarla üret.
+    if [[ -f "${SRVCTL_TEMPLATES}/cgroups/domain.slice.tpl" ]]; then
+        render_template "${SRVCTL_TEMPLATES}/cgroups/domain.slice.tpl" \
+            "DOMAIN=${domain}" \
+            "CPU_QUOTA=100%" \
+            "MEMORY_MAX=512M" \
+            "MEMORY_HIGH=450M" \
+            "IO_READ_MAX=" \
+            "IO_WRITE_MAX=" \
+            "TASKS_MAX=100" \
+            > "${slice_file}.tmp" 2>/dev/null
+        # Geçersiz/boş IO satırlarını temizle (device gerektirir)
+        grep -vE 'IO(Read|Write)BandwidthMax=\s*$' "${slice_file}.tmp" > "${slice_file}" 2>/dev/null
+        rm -f "${slice_file}.tmp"
+    else
+        cat > "${slice_file}" << SLICE
+[Unit]
+Description=srvctl resource slice for ${domain}
+[Slice]
+CPUWeight=100
+CPUQuota=100%
+MemoryHigh=450M
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=100
+IOWeight=100
+SLICE
+    fi
+
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl start "srvctl-${sname}.slice" 2>/dev/null || true
+}
+
+# ───────────────────────────────────────────────────────────────
+#  Helper: PHP-FPM servisine seccomp benzeri syscall kısıtı (Faz 1)
+#  systemd SystemCallFilter ile tehlikeli syscall'ları engeller.
+#  Sistem geneli (php-fpm tek master) — sadece ilk kez/uygulanmamışsa
+#  servisi yeniden başlatır (idempotent).
+# ───────────────────────────────────────────────────────────────
+_apply_seccomp_hardening() {
+    local php_version="$1"
+    local dropin_dir="/etc/systemd/system/php${php_version}-fpm.service.d"
+    local dropin="${dropin_dir}/10-srvctl-seccomp.conf"
+
+    # seccomp JSON'daki deny listesinden türetildi (clone3 hariç — glibc kırılmasın)
+    local deny="kexec_load kexec_file_load reboot swapon swapoff mount umount2 pivot_root init_module finit_module delete_module create_module query_module unshare setns userfaultfd perf_event_open bpf add_key request_key keyctl ptrace process_vm_readv process_vm_writev kcmp lookup_dcookie io_uring_setup io_uring_enter io_uring_register"
+
+    mkdir -p "$dropin_dir"
+    local new_content
+    new_content="[Service]
+SystemCallFilter=~${deny}
+SystemCallArchitectures=native
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+ProtectKernelModules=true
+ProtectKernelTunables=true"
+
+    # Sadece değişiklik varsa yaz + restart (her domain add'de restart etme)
+    if [[ ! -f "$dropin" ]] || [[ "$(cat "$dropin")" != "$new_content" ]]; then
+        echo "$new_content" > "$dropin"
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl restart "php${php_version}-fpm" 2>/dev/null || \
+            warn "php${php_version}-fpm yeniden başlatılamadı (seccomp drop-in)"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════
+#  Faz 2 — OPERASYONEL KOMUTLAR
+# ═══════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────
+#  domain clone <kaynak> <hedef>
+# ───────────────────────────────────────────────────────────────
+_domain_clone() {
+    local src="$1" dst="$2"
+    [[ -z "$src" || -z "$dst" ]] && error "Kullanım: srvctl domain clone <kaynak> <hedef>"
+    domain_exists "$src" || error "Kaynak domain bulunamadı: ${src}"
+    domain_exists "$dst" && error "Hedef domain zaten mevcut: ${dst}"
+
+    local src_base="${WEB_ROOT}/${src}"
+    local src_sname; src_sname=$(safe_name "$src")
+    local dst_sname; dst_sname=$(safe_name "$dst")
+
+    local PHP_VERSION="${DEFAULT_PHP_VERSION}" DB_NAME="db_${src_sname}"
+    read_credentials "$src"
+    local src_php="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    local src_db="${DB_NAME:-db_${src_sname}}"
+
+    header "Domain Klonlama: ${src} → ${dst}"
+
+    step "1/4" "Hedef domain oluşturuluyor (tam güvenlik kurulumu)..."
+    _domain_add "$dst" "--php=${src_php}"
+
+    local dst_base="${WEB_ROOT}/${dst}"
+    local dst_web_user="web_${dst_sname}"
+    local dst_db; dst_db=$(grep -E '^DB_NAME=' "${dst_base}/.credentials" 2>/dev/null | cut -d= -f2)
+    dst_db="${dst_db:-db_${dst_sname}}"
+
+    step "2/4" "Dosyalar kopyalanıyor..."
+    if [[ -d "${src_base}/public_html" ]]; then
+        rsync -a --delete --exclude 'releases/' --exclude '.credentials' --exclude '.deploy-repo' \
+            "${src_base}/public_html/" "${dst_base}/public_html/" 2>/dev/null || \
+            cp -a "${src_base}/public_html/." "${dst_base}/public_html/" 2>/dev/null || true
+    fi
+    [[ -d "${src_base}/private" ]] && rsync -a "${src_base}/private/" "${dst_base}/private/" 2>/dev/null || true
+    [[ -d "${src_base}/shared"  ]] && rsync -a "${src_base}/shared/"  "${dst_base}/shared/"  2>/dev/null || true
+    chown -R "${dst_web_user}:${dst_web_user}" "${dst_base}/public_html" "${dst_base}/private" "${dst_base}/shared" 2>/dev/null || true
+    success "Dosyalar kopyalandı"
+
+    step "3/4" "Veritabanı kopyalanıyor (${src_db} → ${dst_db})..."
+    if mysql -e "USE \`${src_db}\`" 2>/dev/null; then
+        mysqldump --single-transaction --routines --triggers "${src_db}" 2>/dev/null \
+            | mysql "${dst_db}" 2>/dev/null \
+            && success "Veritabanı kopyalandı" || warn "DB kopyalanamadı"
+    else
+        warn "Kaynak DB bulunamadı: ${src_db} — atlanıyor"
+    fi
+
+    step "4/4" "Yapılandırma referansları güncelleniyor..."
+    for envf in "${dst_base}/shared/.env" "${dst_base}/public_html/.env"; do
+        [[ -f "$envf" ]] && sed -i "s|${src}|${dst}|g" "$envf" 2>/dev/null || true
+    done
+    success "Tamamlandı"
+
+    echo ""
+    warn "Hedef DB şifresi yeni üretildi — ${dst_base}/.credentials dosyasına bakın ve .env'i güncelleyin."
+    log_action "DOMAIN CLONE: ${src} -> ${dst}"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain suspend <domain>  — bakım modu (503 + maintenance.html)
+# ───────────────────────────────────────────────────────────────
+_domain_suspend() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl domain suspend <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+
+    local base="${WEB_ROOT}/${domain}"
+    local vhost="/etc/nginx/sites-available/${domain}.conf"
+    [[ -f "$vhost" ]] || error "Nginx vhost bulunamadı: ${vhost}"
+
+    info "Bakım moduna alınıyor: ${domain}"
+
+    # maintenance.html'i public_html'e render et
+    if [[ -f "${SRVCTL_TEMPLATES}/nginx/maintenance.html" ]]; then
+        render_template "${SRVCTL_TEMPLATES}/nginx/maintenance.html" "DOMAIN=${domain}" \
+            > "${base}/public_html/maintenance.html"
+    fi
+
+    # Bakım bloğunu vhost'a idempotent ekle
+    if ! grep -q "srvctl-maintenance-block" "$vhost"; then
+        sed -i "/server_name ${domain}/a\\
+    # srvctl-maintenance-block\\
+    error_page 503 @srvctl_maintenance;\\
+    location @srvctl_maintenance { root ${base}/public_html; rewrite ^ /maintenance.html break; }\\
+    if (-f ${base}/.suspended) { return 503; }" "$vhost"
+    fi
+
+    touch "${base}/.suspended"
+    nginx_test && systemctl reload nginx
+    success "Domain bakım modunda: ${domain}"
+    log_action "DOMAIN SUSPEND: ${domain}"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain unsuspend <domain>
+# ───────────────────────────────────────────────────────────────
+_domain_unsuspend() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl domain unsuspend <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+    local base="${WEB_ROOT}/${domain}"
+    rm -f "${base}/.suspended"
+    nginx_test && systemctl reload nginx
+    success "Domain tekrar aktif: ${domain}"
+    log_action "DOMAIN UNSUSPEND: ${domain}"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain php-switch <domain> <versiyon>
+# ───────────────────────────────────────────────────────────────
+_domain_php_switch() {
+    local domain="$1" new_ver="$2"
+    [[ -z "$domain" || -z "$new_ver" ]] && error "Kullanım: srvctl domain php-switch <domain> <versiyon>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+    php_version_exists "$new_ver" || error "PHP ${new_ver} kurulu değil. Önce: apt install php${new_ver}-fpm"
+
+    local sname; sname=$(safe_name "$domain")
+    local base="${WEB_ROOT}/${domain}"
+    local PHP_VERSION="${DEFAULT_PHP_VERSION}"
+    read_credentials "$domain"
+    local old_ver="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    [[ "$old_ver" == "$new_ver" ]] && { info "Domain zaten PHP ${new_ver} kullanıyor."; return; }
+
+    local old_pool="/etc/php/${old_ver}/fpm/pool.d/${sname}.conf"
+    local new_pool="/etc/php/${new_ver}/fpm/pool.d/${sname}.conf"
+    [[ -f "$old_pool" ]] || error "Mevcut pool bulunamadı: ${old_pool}"
+
+    header "PHP Sürüm Değişimi: ${old_ver} → ${new_ver} (${domain})"
+
+    step "1/5" "Chroot kütüphaneleri (php${new_ver}-fpm)..."
+    local fpm_bin="/usr/sbin/php-fpm${new_ver}"
+    if [[ -x "$fpm_bin" ]]; then
+        local lib dir loader
+        while IFS= read -r lib; do
+            [[ -z "$lib" ]] && continue
+            dir=$(dirname "$lib"); mkdir -p "${base}${dir}"; cp -n "$lib" "${base}${lib}" 2>/dev/null || true
+        done < <(ldd "$fpm_bin" 2>/dev/null | awk '{print $3}' | grep -v '^$')
+        loader=$(ldd "$fpm_bin" 2>/dev/null | grep 'ld-linux' | awk '{print $1}')
+        [[ -n "$loader" && -f "$loader" ]] && { mkdir -p "${base}$(dirname "$loader")"; cp -n "$loader" "${base}${loader}" 2>/dev/null || true; }
+    fi
+    success "Chroot kütüphaneleri güncellendi"
+
+    step "2/5" "PHP-FPM pool taşınıyor..."
+    sed "s|php${old_ver}-fpm-${sname}.sock|php${new_ver}-fpm-${sname}.sock|g" "$old_pool" > "$new_pool"
+    rm -f "$old_pool"
+    systemctl reload "php${old_ver}-fpm" 2>/dev/null || true
+    systemctl reload "php${new_ver}-fpm" 2>/dev/null || systemctl restart "php${new_ver}-fpm"
+    success "Pool: php${new_ver}-fpm-${sname}"
+
+    step "3/5" "Seccomp hardening (yeni sürüm)..."
+    _apply_seccomp_hardening "$new_ver"
+    success "Seccomp uygulandı"
+
+    step "4/5" "Nginx fastcgi_pass güncelleniyor..."
+    sed -i "s|php${old_ver}-fpm-${sname}.sock|php${new_ver}-fpm-${sname}.sock|g" \
+        "/etc/nginx/sites-available/${domain}.conf"
+    nginx_test && systemctl reload nginx
+    success "Nginx güncellendi"
+
+    step "5/5" "Kayıt güncelleniyor..."
+    sed -i "s|^PHP_VERSION=.*|PHP_VERSION=${new_ver}|" "${base}/.credentials"
+    success "Domain artık PHP ${new_ver}"
+    log_action "DOMAIN PHP-SWITCH: ${domain} (${old_ver} -> ${new_ver})"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain resources <domain> [--memory=512M] [--cpu=50%] [--io=100] [--show]
+# ───────────────────────────────────────────────────────────────
+_domain_resources() {
+    local domain="$1"; shift || true
+    [[ -z "$domain" ]] && error "Kullanım: srvctl domain resources <domain> [--memory=512M] [--cpu=50%] [--io=100] [--show]"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+
+    local sname; sname=$(safe_name "$domain")
+    local slice="srvctl-${sname}.slice"
+    local slice_path="/etc/systemd/system/${slice}"
+    local mem="" cpu="" io="" show=0
+
+    for arg in "$@"; do
+        case "$arg" in
+            --memory=*) mem="${arg#--memory=}" ;;
+            --cpu=*)    cpu="${arg#--cpu=}" ;;
+            --io=*)     io="${arg#--io=}" ;;
+            --show)     show=1 ;;
+            *) warn "Bilinmeyen seçenek: ${arg}" ;;
+        esac
+    done
+
+    if [[ "$show" == "1" ]]; then
+        header "Kaynak Durumu: ${domain}"
+        if systemctl show "$slice" >/dev/null 2>&1; then
+            systemctl show "$slice" -p MemoryMax -p CPUQuotaPerSecUSec -p TasksMax -p MemoryCurrent 2>/dev/null | sed 's/^/  /'
+        else
+            echo "  (Henüz kaynak limiti tanımlı değil)"
+        fi
+        echo ""
+        return
+    fi
+
+    [[ -z "$mem$cpu$io" ]] && error "En az bir limit verin: --memory=512M / --cpu=50% / --io=100"
+
+    info "Kaynak limitleri uygulanıyor: ${domain}"
+    {
+        echo "[Unit]"
+        echo "Description=srvctl resource slice for ${domain}"
+        echo "[Slice]"
+        [[ -n "$mem" ]] && { echo "MemoryMax=${mem}"; echo "MemoryHigh=${mem}"; }
+        [[ -n "$cpu" ]] && echo "CPUQuota=${cpu}"
+        [[ -n "$io"  ]] && echo "IOWeight=${io}"
+    } > "$slice_path"
+
+    systemctl daemon-reload
+    systemctl start "$slice" 2>/dev/null || true
+
+    [[ -n "$mem" ]] && success "Bellek limiti: ${mem}"
+    [[ -n "$cpu" ]] && success "CPU limiti:    ${cpu}"
+    [[ -n "$io"  ]] && success "IO ağırlığı:   ${io}"
+    log_action "DOMAIN RESOURCES: ${domain} (mem=${mem} cpu=${cpu} io=${io})"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain staging <domain>  — staging.<domain> klonu
+# ───────────────────────────────────────────────────────────────
+_domain_staging() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl domain staging <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+    local staging="staging.${domain}"
+    domain_exists "$staging" && error "Staging zaten mevcut: ${staging}"
+
+    info "Staging ortamı oluşturuluyor: ${staging}"
+    _domain_clone "$domain" "$staging"
+    echo ""
+    success "Staging hazır: https://${staging}"
+    warn "DNS: ${staging} A kaydı + 'srvctl ssl renew' gerekebilir."
+    log_action "DOMAIN STAGING: ${domain} -> ${staging}"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  domain migrate <domain> <user@host> [--auto]
+# ───────────────────────────────────────────────────────────────
+_domain_migrate() {
+    local domain="$1" remote="$2" auto=0
+    [[ "${3:-}" == "--auto" ]] && auto=1
+    [[ -z "$domain" || -z "$remote" ]] && error "Kullanım: srvctl domain migrate <domain> <user@host> [--auto]"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+
+    local sname; sname=$(safe_name "$domain")
+    local base="${WEB_ROOT}/${domain}"
+    local PHP_VERSION="${DEFAULT_PHP_VERSION}" DB_NAME="db_${sname}"
+    read_credentials "$domain"
+    local db="${DB_NAME:-db_${sname}}"
+    local php="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+
+    local stamp; stamp=$(date +%Y%m%d_%H%M%S)
+    local bundle="${BACKUP_DIR}/migrate-${domain}-${stamp}"
+    mkdir -p "$bundle"
+
+    header "Migrasyon: ${domain} → ${remote}"
+
+    step "1/3" "Dosyalar arşivleniyor..."
+    tar czf "${bundle}/files.tar.gz" -C "${WEB_ROOT}" "${domain}" 2>/dev/null
+    cp "${base}/.credentials" "${bundle}/credentials" 2>/dev/null || true
+
+    step "2/3" "Veritabanı dökümü (${db})..."
+    mysqldump --single-transaction --routines --triggers "${db}" 2>/dev/null | gzip > "${bundle}/db.sql.gz" \
+        || warn "DB dökümü alınamadı"
+
+    step "3/3" "Karşı sunucuya kopyalanıyor (${remote})..."
+    scp -r "${bundle}" "${remote}:/tmp/" || error "scp başarısız — SSH erişimini kontrol edin."
+    success "Paket kopyalandı: ${remote}:/tmp/$(basename "$bundle")"
+
+    echo ""
+    if [[ "$auto" == "1" ]]; then
+        warn "--auto: karşı sunucuda içe aktarma deneniyor..."
+        ssh "$remote" "command -v srvctl >/dev/null && srvctl domain add ${domain} --php=${php} && tar xzf /tmp/$(basename "$bundle")/files.tar.gz -C ${WEB_ROOT} && zcat /tmp/$(basename "$bundle")/db.sql.gz | mysql ${db}" \
+            && success "Karşı sunucuda içe aktarıldı." || warn "Otomatik aktarma başarısız — manuel adımları izleyin."
+    else
+        echo -e "  ${BOLD}Karşı sunucuda çalıştırın:${NC}"
+        echo "    cd /tmp/$(basename "$bundle")"
+        echo "    srvctl domain add ${domain} --php=${php}"
+        echo "    tar xzf files.tar.gz -C ${WEB_ROOT}"
+        echo "    zcat db.sql.gz | mysql ${db}"
+        echo ""
+    fi
+    log_action "DOMAIN MIGRATE: ${domain} -> ${remote} (auto=${auto})"
 }
