@@ -36,8 +36,8 @@ server {
     add_header X-Permitted-Cross-Domain-Policies "none" always;
 
     # ─── Rate Limiting ───
-    limit_req zone=general burst=20 nodelay;
-    limit_conn conn_per_ip 50;
+    limit_req zone={{RL_REQ_ZONE}} burst={{RL_REQ_BURST}} nodelay;
+    limit_conn conn_per_ip {{RL_CONN}};
 
     # ─── Hassas dosya/dizinleri engelle ───
     location ~ /\. {
@@ -50,7 +50,7 @@ server {
         return 404;
     }
 
-    location ~ ^/(app|system|vendor|modules|writable|private|tests|node_modules|\.composer)/ {
+    location ~ ^/(app|system|vendor|modules|writable|private|tests|node_modules|\.composer|storage|bootstrap|config|database|routes|resources|var)/ {
         deny all;
         return 404;
     }
@@ -83,8 +83,8 @@ server {
     }
 
     # ─── Login rate limit ───
-    location ~ ^/(login|admin|auth|panel|dashboard) {
-        limit_req zone=login burst=5 nodelay;
+    location ~ ^/({{RL_SENSITIVE_PATHS}}) {
+        limit_req zone={{RL_LOGIN_ZONE}} burst={{RL_LOGIN_BURST}} nodelay;
         try_files $uri $uri/ /index.php?$query_string;
     }
 
