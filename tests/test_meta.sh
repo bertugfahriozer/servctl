@@ -26,5 +26,13 @@ assert_eq "${SENSITIVE_PATHS:-}" "login|admin" "read_meta SENSITIVE_PATHS"
 # read_meta: meta yoksa hata vermez
 assert_ok read_meta yokboyle.com
 
+# Özel karakterli değer (| & \) write→update→read tam round-trip etmeli (sed bug regresyonu)
+write_meta example.com SENSITIVE_PATHS 'login|admin|wp-login\.php'
+write_meta example.com SENSITIVE_PATHS 'admin|backend&x'   # update, özel karakterli
+unset SENSITIVE_PATHS
+read_meta example.com
+assert_eq "${SENSITIVE_PATHS:-}" 'admin|backend&x' "özel karakter update round-trip"
+assert_eq "$(grep -c '^SENSITIVE_PATHS=' "${WEB_ROOT}/example.com/.srvctl-meta")" "1" "update sonrası duplicate yok"
+
 rm -rf "$WEB_ROOT"
 test_summary

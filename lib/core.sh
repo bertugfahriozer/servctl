@@ -217,14 +217,13 @@ read_meta() {
 write_meta() {
     local domain="$1" key="$2" value="$3"
     local meta_file="${WEB_ROOT}/${domain}/.srvctl-meta"
-    local escaped_value
-    escaped_value=$(printf '%q' "$value")
-    if [[ -f "$meta_file" ]] && grep -q "^${key}=" "$meta_file"; then
-        sed -i.bak "s|^${key}=.*|${key}=${escaped_value}|" "$meta_file"
-        rm -f "${meta_file}.bak"
-    else
-        echo "${key}=${escaped_value}" >> "$meta_file"
+    # Mevcut anahtarı çıkar (varsa), sonra %q-escape'li olarak yeniden ekle.
+    # sed yerine grep-filtre: keyfi değerlerde (| & \ vb.) ve BSD/GNU sed farkında güvenli.
+    if [[ -f "$meta_file" ]]; then
+        grep -v "^${key}=" "$meta_file" > "${meta_file}.tmp" 2>/dev/null || true
+        mv "${meta_file}.tmp" "$meta_file"
     fi
+    printf '%s=%q\n' "$key" "$value" >> "$meta_file"
     chmod 644 "$meta_file" 2>/dev/null || true
     chown root:root "$meta_file" 2>/dev/null || true
 }
