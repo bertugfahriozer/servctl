@@ -17,7 +17,8 @@ cmd_domain() {
         php-switch) _domain_php_switch "${@:2}" ;;
         resources) _domain_resources "${@:2}" ;;
         staging)   _domain_staging "${@:2}" ;;
-        migrate)   _domain_migrate "${@:2}" ;;
+        migrate)    _domain_migrate "${@:2}" ;;
+        rate-limit) _domain_rate_limit "${@:2}" ;;
         *)
             echo ""
             echo "  Kullanım: srvctl domain <komut>"
@@ -36,6 +37,7 @@ cmd_domain() {
             echo "    resources <domain> [seçenekler] Kaynak limitleri (cgroups v2)"
             echo "    staging <domain>                Staging ortamı oluştur"
             echo "    migrate <domain> <user@host>    Sunucular arası taşı"
+            echo "    rate-limit <domain> <profil>    Rate-limit profilini değiştir/göster"
             echo ""
             ;;
     esac
@@ -1045,4 +1047,83 @@ _domain_migrate() {
         echo ""
     fi
     log_action "DOMAIN MIGRATE: ${domain} -> ${remote} (auto=${auto})"
+}
+
+# ═══════════════════════════════════════════════
+#  DOMAIN RATE-LIMIT — per-domain profil yönetimi
+# ═══════════════════════════════════════════════
+_rate_limit_list() {
+    header "Rate-Limit Profilleri"
+    printf "  %-10s %-12s %-6s %-15s %-6s %s\n" "PROFİL" "REQ_ZONE" "BURST" "LOGIN_ZONE" "BURST" "CONN"
+    divider
+    local p
+    for p in $(rate_profile_names); do
+        printf "  %-10s %-12s %-6s %-15s %-6s %s\n" \
+            "$p" \
+            "$(rate_profile_field "$p" 2)" \
+            "$(rate_profile_field "$p" 3)" \
+            "$(rate_profile_field "$p" 4)" \
+            "$(rate_profile_field "$p" 5)" \
+            "$(rate_profile_field "$p" 6)"
+    done
+}
+
+_domain_rate_limit() {
+    # require_root yalnızca yazma (profil değiştirme) için; --show/--list salt-okunur.
+    local domain="" profile="" action="set" arg
+    for arg in "$@"; do
+        case "$arg" in
+            --show) action="show" ;;
+            --list) action="list" ;;
+            -*)     warn "Bilinmeyen seçenek: ${arg}" ;;
+            *)      if [[ -z "$domain" ]]; then domain="$arg"; else profile="$arg"; fi ;;
+        esac
+    done
+
+    if [[ "$action" == "list" ]]; then
+        _rate_limit_list
+        return
+    fi
+
+    [[ -z "$domain" ]] && error "Kullanım: srvctl domain rate-limit <domain> <profil> | --show | --list"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+
+    if [[ "$action" == "show" ]]; then
+        read_meta "$domain"
+        rate_profile_load "${RATE_PROFILE:-standard}"
+        info "Domain: ${domain}"
+        echo "  Profil:        ${RL_PROFILE}"
+        echo "  İstek zone:    ${RL_REQ_ZONE} (burst ${RL_REQ_BURST})"
+        echo "  Login zone:    ${RL_LOGIN_ZONE} (burst ${RL_LOGIN_BURST})"
+        echo "  Bağlantı/IP:   ${RL_CONN}"
+        return
+    fi
+
+    # ─── Profil değiştir (root gerekir) ───
+    require_root
+    [[ -z "$profile" ]] && error "Profil belirtilmedi. Kullanım: srvctl domain rate-limit ${domain} <profil>"
+    [[ -z "$(rate_profile_line "$profile")" ]] && error "Geçersiz profil: ${profile} (srvctl domain rate-limit --list)"
+
+    read_credentials "$domain"
+    local php_version="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    local conf="/etc/nginx/sites-available/${domain}.conf"
+    local mode="http"
+    grep -q 'listen 443' "$conf" 2>/dev/null && mode="ssl"
+
+    # Mevcut config'i yedekle (atomic geri dönüş)
+    local backup="${conf}.bak.$$"
+    cp "$conf" "$backup"
+
+    _domain_write_vhost "$domain" "$php_version" "$profile" "$mode"
+
+    if nginx -t 2>/dev/null; then
+        rm -f "$backup"
+        write_meta "$domain" "RATE_PROFILE" "$profile"
+        systemctl reload nginx
+        log_action "domain rate-limit ${domain} → ${profile}"
+        success "Rate-limit profili güncellendi: ${domain} → ${profile}"
+    else
+        mv "$backup" "$conf"
+        error "Nginx testi başarısız — değişiklik geri alındı. Profil değişmedi."
+    fi
 }
