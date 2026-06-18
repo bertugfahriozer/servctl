@@ -1,0 +1,101 @@
+server {
+    listen 80;
+    server_name {{DOMAIN}} www.{{DOMAIN}};
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name {{DOMAIN}} www.{{DOMAIN}};
+
+    # ─── SSL ───
+    ssl_certificate     /etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{DOMAIN}}/privkey.pem;
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+
+    root {{WEB_ROOT}}/{{DOMAIN}}/public_html;
+    index index.php;
+
+    access_log {{WEB_ROOT}}/{{DOMAIN}}/logs/access.log security;
+    error_log  {{WEB_ROOT}}/{{DOMAIN}}/logs/error.log warn;
+
+    # ─── Güvenlik ───
+    disable_symlinks if_not_owner from=$document_root;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https:; connect-src 'self' https:; frame-ancestors 'self';" always;
+    add_header X-Permitted-Cross-Domain-Policies "none" always;
+
+    # ─── Rate Limiting ───
+    limit_req zone=general burst=20 nodelay;
+    limit_conn conn_per_ip 50;
+
+    # ─── Hassas dosya/dizinleri engelle ───
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+
+    location ~ \.(env|git|svn|htaccess|htpasswd|ini|log|sh|sql|bak|config|yml|yaml|toml|lock|dist)$ {
+        deny all;
+        return 404;
+    }
+
+    location ~ ^/(app|system|vendor|modules|writable|private|tests|node_modules|\.composer)/ {
+        deny all;
+        return 404;
+    }
+
+    location ~ ^/spark$ {
+        deny all;
+        return 404;
+    }
+
+    # ─── CI4 Rewrite ───
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # ─── PHP-FPM ───
+    location ~ [^/]\.php(/|$) {
+        try_files $uri =404;
+
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass unix:/run/php/php{{PHP_VERSION}}-fpm-{{SAFE_NAME}}.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+
+        fastcgi_hide_header X-Powered-By;
+        fastcgi_read_timeout 300;
+        fastcgi_send_timeout 300;
+        fastcgi_buffer_size 128k;
+        fastcgi_buffers 4 256k;
+    }
+
+    # ─── Login rate limit ───
+    location ~ ^/(login|admin|auth|panel|dashboard) {
+        limit_req zone=login burst=5 nodelay;
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # ─── Statik dosyalar ───
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|eot|svg|webp|avif|mp4|webm)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+        log_not_found off;
+    }
+
+    location = /favicon.ico { log_not_found off; access_log off; }
+    location = /robots.txt  { log_not_found off; access_log off; }
+}

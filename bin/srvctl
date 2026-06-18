@@ -1,0 +1,142 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════
+#  srvctl — CLI-Only Ultra-Güvenli Sunucu Yönetimi
+#  Versiyon: 2.0.0
+#
+#  Kullanım: srvctl <komut> [alt-komut] [seçenekler]
+# ═══════════════════════════════════════════════
+
+set -euo pipefail
+
+SRVCTL_ROOT="/usr/local/srvctl"
+
+# Core kütüphaneyi yükle
+if [[ ! -f "${SRVCTL_ROOT}/lib/core.sh" ]]; then
+    echo "HATA: srvctl düzgün kurulmamış. /usr/local/srvctl/lib/core.sh bulunamadı."
+    echo "Kurulum: sudo bash install.sh"
+    exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${SRVCTL_ROOT}/lib/core.sh"
+
+# Plugin'leri yükle
+if [[ -f "${SRVCTL_ROOT}/lib/plugin.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "${SRVCTL_ROOT}/lib/plugin.sh"
+    load_plugins 2>/dev/null || true
+fi
+
+# ─── Komut Yönlendirme ───
+_load_and_run() {
+    local module="$1"
+    local func="$2"
+    shift 2
+    # shellcheck disable=SC1090
+    source "${SRVCTL_ROOT}/lib/${module}.sh"
+    "$func" "$@"
+}
+
+case "${1:-help}" in
+    init)       _load_and_run init cmd_init "${@:2}" ;;
+    domain)     _load_and_run domain cmd_domain "${@:2}" ;;
+    deploy)     _load_and_run deploy cmd_deploy "${@:2}" ;;
+    rollback)   _load_and_run deploy cmd_rollback "${@:2}" ;;
+    backup)     _load_and_run backup cmd_backup "${@:2}" ;;
+    ssl)        _load_and_run ssl cmd_ssl "${@:2}" ;;
+    security)   _load_and_run security cmd_security "${@:2}" ;;
+    status)     _load_and_run status cmd_status "${@:2}" ;;
+    monitor)    _load_and_run monitor cmd_monitor "${@:2}" ;;
+    notify)     _load_and_run notify cmd_notify "${@:2}" ;;
+    cloudflare|cf) _load_and_run cloudflare cmd_cloudflare "${@:2}" ;;
+    ip)         _load_and_run ip cmd_ip "${@:2}" ;;
+    user)       _load_and_run user cmd_user "${@:2}" ;;
+    plugin)     _load_and_run plugin cmd_plugin "${@:2}" ;;
+    webhook)    _load_and_run webhook cmd_webhook "${@:2}" ;;
+    changelog)  _load_and_run changelog cmd_changelog "${@:2}" ;;
+
+    version|--version|-v)
+        echo "srvctl v${SRVCTL_VERSION}"
+        ;;
+    help|--help|-h)
+        echo ""
+        echo -e "  ${BOLD}srvctl${NC} v${SRVCTL_VERSION} — CLI-Only Güvenli Sunucu Yönetimi"
+        echo ""
+        echo -e "  ${BOLD}Kullanım:${NC} srvctl <komut> [alt-komut] [seçenekler]"
+        echo ""
+        echo -e "  ${BOLD}Sunucu Yönetimi${NC}"
+        echo -e "    ${CYAN}init${NC}                              Sunucu ilk kurulumu"
+        echo -e "    ${CYAN}status${NC}                            Sunucu durum özeti"
+        echo ""
+        echo -e "  ${BOLD}Domain${NC}"
+        echo -e "    ${CYAN}domain add${NC} <domain> [--php=8.3]   Yeni domain ekle"
+        echo -e "    ${CYAN}domain remove${NC} <domain>            Domain kaldır"
+        echo -e "    ${CYAN}domain list${NC}                       Tüm domain'leri listele"
+        echo -e "    ${CYAN}domain info${NC} <domain>              Domain detay bilgisi"
+        echo -e "    ${CYAN}domain clone${NC} <kaynak> <hedef>     Domain klonla"
+        echo -e "    ${CYAN}domain suspend${NC} <domain>           Bakım moduna al"
+        echo -e "    ${CYAN}domain unsuspend${NC} <domain>         Bakım modundan çıkar"
+        echo -e "    ${CYAN}domain php-switch${NC} <domain> <ver>  PHP versiyonu değiştir"
+        echo -e "    ${CYAN}domain resources${NC} <domain> [opts]  Kaynak limitleri (cgroups)"
+        echo ""
+        echo -e "  ${BOLD}Deploy${NC}"
+        echo -e "    ${CYAN}deploy${NC} <domain> [branch]          Zero-downtime deploy"
+        echo -e "    ${CYAN}rollback${NC} <domain>                 Son deploy'a geri dön"
+        echo ""
+        echo -e "  ${BOLD}Yedekleme${NC}"
+        echo -e "    ${CYAN}backup run${NC} [domain]               Yedekleme çalıştır"
+        echo -e "    ${CYAN}backup list${NC}                       Yedekleri listele"
+        echo -e "    ${CYAN}backup restore${NC} <yedek>            Geri yükle"
+        echo ""
+        echo -e "  ${BOLD}Güvenlik${NC}"
+        echo -e "    ${CYAN}security audit${NC}                    Güvenlik denetimi (skor/100)"
+        echo -e "    ${CYAN}ssl renew${NC}                         SSL yenileme"
+        echo -e "    ${CYAN}ssl status${NC}                        SSL durumları"
+        echo -e "    ${CYAN}ip ban${NC} <ip>                       IP engelle"
+        echo -e "    ${CYAN}ip whitelist${NC} add <ip>             Beyaz listeye ekle"
+        echo -e "    ${CYAN}ip geoblock${NC} add <ülke>            Ülke engelle"
+        echo ""
+        echo -e "  ${BOLD}İzleme${NC}"
+        echo -e "    ${CYAN}monitor live${NC}                      Canlı izleme"
+        echo -e "    ${CYAN}monitor domains${NC}                   Per-domain kaynaklar"
+        echo -e "    ${CYAN}monitor uptime${NC}                    Uptime kontrolü"
+        echo -e "    ${CYAN}monitor check${NC}                     Durum kontrolü + alarm"
+        echo -e "    ${CYAN}monitor traffic${NC} <domain>          Trafik analizi"
+        echo ""
+        echo -e "  ${BOLD}Entegrasyon${NC}"
+        echo -e "    ${CYAN}cloudflare${NC}                        Cloudflare API"
+        echo -e "    ${CYAN}notify setup${NC}                      Bildirim kanalları"
+        echo -e "    ${CYAN}webhook${NC}                           Auto-deploy webhook"
+        echo ""
+        echo -e "  ${BOLD}Yönetim${NC}"
+        echo -e "    ${CYAN}user${NC}                              RBAC kullanıcı yönetimi"
+        echo -e "    ${CYAN}plugin${NC}                            Plugin sistemi"
+        echo -e "    ${CYAN}changelog${NC}                         Değişiklik kaydı"
+        echo ""
+        ;;
+    *)
+        # Plugin komutlarını kontrol et
+        local plugin_handled=false
+        if [[ -d "${SRVCTL_ROOT}/plugins" ]]; then
+            for plugin_dir in "${SRVCTL_ROOT}/plugins"/*/; do
+                [[ ! -f "${plugin_dir}/.enabled" ]] && continue
+                [[ ! -f "${plugin_dir}/plugin.conf" ]] && continue
+                # shellcheck disable=SC1090
+                source "${plugin_dir}/plugin.conf"
+                if [[ "${PLUGIN_COMMANDS:-}" == "${1}" ]]; then
+                    # shellcheck disable=SC1090
+                    source "${plugin_dir}/main.sh"
+                    "cmd_${1}" "${@:2}"
+                    plugin_handled=true
+                    break
+                fi
+            done
+        fi
+
+        if [[ "$plugin_handled" != "true" ]]; then
+            echo -e "  ${RED}✗${NC}  Bilinmeyen komut: ${1}"
+            echo "  Yardım için: srvctl help"
+            exit 1
+        fi
+        ;;
+esac
