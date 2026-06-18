@@ -73,6 +73,66 @@ _domain_write_vhost() {
         > "${sites}/${domain}.conf"
 }
 
+# Sihirbaz: girdileri toplar, WIZ_* global değişkenlerine yazar. İptalde 1 döner.
+_domain_wizard_collect() {
+    WIZ_DOMAIN=""; WIZ_PHP=""; WIZ_PROFILE=""; WIZ_SSL="evet"; WIZ_SENSITIVE=""
+    local domain php_version profile ssl_ans sensitive
+
+    # 1. Domain
+    while :; do
+        read -rp "  Domain adı (örn. example.com): " domain
+        [[ -z "$domain" ]] && { warn "Domain boş olamaz."; continue; }
+        if ! [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]; then
+            warn "Geçersiz domain formatı."; continue
+        fi
+        domain_exists "$domain" && { warn "Domain zaten mevcut: ${domain}"; continue; }
+        break
+    done
+
+    # 2. PHP sürümü
+    read -rp "  PHP sürümü [${DEFAULT_PHP_VERSION}]: " php_version
+    php_version="${php_version:-${DEFAULT_PHP_VERSION}}"
+
+    # 3. Rate-limit profili
+    echo "  Profiller: $(rate_profile_names | tr '\n' ' ')"
+    read -rp "  Rate-limit profili [standard]: " profile
+    profile="${profile:-standard}"
+
+    # 4. SSL
+    read -rp "  SSL şimdi alınsın mı? (evet/hayır) [evet]: " ssl_ans
+    ssl_ans="${ssl_ans:-evet}"
+
+    # 5. Hassas yollar
+    echo "  Varsayılan hassas yollar: ${DEFAULT_SENSITIVE_PATHS}"
+    read -rp "  Değiştir (boş = varsayılan): " sensitive
+    sensitive="${sensitive:-${DEFAULT_SENSITIVE_PATHS}}"
+
+    # Özet
+    divider
+    echo "  Domain:    ${domain}"
+    echo "  PHP:       ${php_version}"
+    echo "  Profil:    ${profile}"
+    echo "  SSL:       ${ssl_ans}"
+    echo "  Hassas:    ${sensitive}"
+    divider
+
+    WIZ_DOMAIN="$domain"; WIZ_PHP="$php_version"; WIZ_PROFILE="$profile"
+    WIZ_SSL="$ssl_ans"; WIZ_SENSITIVE="$sensitive"
+
+    confirm "Bu ayarlarla devam edilsin mi?" || return 1
+    return 0
+}
+
+# Sihirbaz: girdi toplar ve _domain_add'i kurulu argümanlarla çağırır.
+_domain_add_wizard() {
+    header "Yeni Domain — İnteraktif Kurulum"
+    _domain_wizard_collect || { info "İptal edildi."; return 1; }
+
+    local args=("$WIZ_DOMAIN" "--php=${WIZ_PHP}" "--rate=${WIZ_PROFILE}" "--sensitive=${WIZ_SENSITIVE}")
+    [[ "$WIZ_SSL" != "evet" ]] && args+=("--no-ssl")
+    _domain_add "${args[@]}"
+}
+
 # ═══════════════════════════════════════════════
 #  DOMAIN ADD — 10 adımda tam güvenlikli domain
 # ═══════════════════════════════════════════════
