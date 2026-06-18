@@ -9,7 +9,7 @@ cmd_init() {
 
     header "srvctl init — Sunucu İlk Kurulumu"
 
-    local total=10
+    local total=11
     local current=0
 
     # ─── 1. Sistem Güncellemesi ───
@@ -149,6 +149,16 @@ SSHCONF
     _create_deployer_user
     success "Fail2Ban + auditd aktif"
 
+    # ─── 11. Gelişmiş Güvenlik Katmanları ───
+    current=$((current + 1))
+    step "${current}/${total}" "Gelişmiş güvenlik (cgroups, ModSecurity, AIDE, ClamAV, GeoIP)..."
+    _setup_cgroups
+    _install_modsecurity
+    _install_aide
+    _install_clamav
+    _install_geoip
+    success "Gelişmiş güvenlik katmanları kuruldu"
+
     # ─── Dizinler ───
     mkdir -p "${WEB_ROOT}" "${BACKUP_DIR}" "${SRVCTL_ROOT}/logs"
 
@@ -172,6 +182,23 @@ SSHCONF
 # ═══════════════════════════════════════════════
 #  HELPER FONKSİYONLAR
 # ═══════════════════════════════════════════════
+
+# Rate-limit kademe zone'larını üret (http context — conf.d include için).
+# conn_per_ip zone'u nginx.conf'ta tanımlı olduğundan burada tekrar edilmez.
+render_ratelimit_zones() {
+    cat << 'RLZONES'
+# srvctl — rate-limit kademe zone'ları (otomatik üretildi, elle düzenlemeyin)
+limit_req_zone $binary_remote_addr zone=rl_strict:10m rate=3r/s;
+limit_req_zone $binary_remote_addr zone=rl_standard:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=rl_relaxed:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=rl_api:10m rate=60r/s;
+limit_req_zone $binary_remote_addr zone=login_strict:10m rate=3r/m;
+limit_req_zone $binary_remote_addr zone=login_standard:10m rate=5r/m;
+limit_req_zone $binary_remote_addr zone=login_relaxed:10m rate=10r/m;
+limit_req_status 429;
+limit_conn_status 429;
+RLZONES
+}
 
 _install_nginx() {
     # Nginx'in kurulu olup olmadığını kontrol et
@@ -251,9 +278,14 @@ http {
         return 444;
     }
 
+    include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*.conf;
 }
 NGINXCONF
+
+    # Kademe rate-limit zone'larını conf.d'ye yaz (nginx -t öncesi)
+    mkdir -p /etc/nginx/conf.d
+    render_ratelimit_zones > /etc/nginx/conf.d/00-srvctl-ratelimit.conf
 
     mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 
@@ -546,4 +578,160 @@ SUDOERS
         info "Deployer kullanıcısı: ${DEPLOYER_USER}"
         warn "SSH key ekleyin: /home/${DEPLOYER_USER}/.ssh/authorized_keys"
     fi
+}
+# ═══════════════════════════════════════════════════════════════
+#  init.sh — EK BLOK (Faz 1: Gelişmiş Güvenlik Katmanları)
+#
+#  Bu blok mevcut lib/init.sh dosyanızın SONUNA eklenir.
+#  cmd_init() içine bir "step 11" eklenmeli (bkz. INTEGRATION.md):
+#
+#      current=$((current + 1))
+#      step "${current}/${total}" "Gelişmiş güvenlik katmanları..."
+#      _setup_cgroups
+#      _install_modsecurity
+#      _install_aide
+#      _install_clamav
+#      _install_geoip
+#      success "Gelişmiş güvenlik katmanları kuruldu"
+#
+#  ...ve cmd_init başındaki  total=10  →  total=11  yapılmalı.
+# ═══════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────
+#  cgroups v2 — parent slice + doğrulama
+# ───────────────────────────────────────────────────────────────
+_setup_cgroups() {
+    # Ubuntu 22.04 varsayılan olarak cgroups v2 kullanır
+    if [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; then
+        warn "cgroups v2 aktif değil — GRUB'a systemd.unified_cgroup_hierarchy=1 ekleyin"
+    fi
+
+    # Parent slice (per-domain srvctl-*.slice bunun altına girer)
+    cat > /etc/systemd/system/srvctl.slice << 'SLICE'
+[Unit]
+Description=srvctl domain resource parent slice
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+SLICE
+
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl start srvctl.slice 2>/dev/null || true
+}
+
+# ───────────────────────────────────────────────────────────────
+#  ModSecurity v3 + OWASP Core Rule Set (nginx connector)
+# ───────────────────────────────────────────────────────────────
+_install_modsecurity() {
+    # nginx ModSecurity connector
+    apt-get install -y -qq libnginx-mod-http-modsecurity 2>/dev/null \
+        || { warn "libnginx-mod-http-modsecurity bulunamadı — ModSecurity atlanıyor"; return; }
+
+    mkdir -p /etc/nginx/modsec /tmp/modsecurity/{tmp,data,upload}
+    chown -R www-data:www-data /tmp/modsecurity 2>/dev/null || true
+
+    # Önerilen temel modsecurity.conf (paketle gelir)
+    if [[ -f /etc/modsecurity/modsecurity.conf-recommended ]]; then
+        cp /etc/modsecurity/modsecurity.conf-recommended /etc/nginx/modsec/modsecurity.conf
+        sed -i 's/^SecRuleEngine .*/SecRuleEngine On/' /etc/nginx/modsec/modsecurity.conf
+    fi
+
+    # unicode.mapping
+    [[ -f /usr/share/modsecurity-crs/unicode.mapping ]] && \
+        cp /usr/share/modsecurity-crs/unicode.mapping /etc/nginx/modsec/ 2>/dev/null || true
+
+    # OWASP CRS indir
+    if [[ ! -d /etc/nginx/owasp-crs ]]; then
+        git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/owasp-crs 2>/dev/null \
+            || warn "OWASP CRS indirilemedi (git/erişim)"
+    fi
+    [[ -f /etc/nginx/owasp-crs/crs-setup.conf.example ]] && \
+        cp -n /etc/nginx/owasp-crs/crs-setup.conf.example /etc/nginx/owasp-crs/crs-setup.conf 2>/dev/null || true
+
+    # srvctl ana WAF yapılandırması (template'ten)
+    if [[ -f "${SRVCTL_TEMPLATES}/nginx/modsecurity.conf.tpl" ]]; then
+        cp "${SRVCTL_TEMPLATES}/nginx/modsecurity.conf.tpl" /etc/nginx/modsec/main.conf
+    else
+        cat > /etc/nginx/modsec/main.conf << 'MODSEC'
+Include /etc/nginx/modsec/modsecurity.conf
+Include /etc/nginx/owasp-crs/crs-setup.conf
+Include /etc/nginx/owasp-crs/rules/*.conf
+MODSEC
+    fi
+
+    # nginx.conf http bloğuna modsecurity aç (idempotent)
+    if ! grep -q "modsecurity on" /etc/nginx/nginx.conf 2>/dev/null; then
+        sed -i '/include \/etc\/nginx\/sites-enabled/i\    modsecurity on;\n    modsecurity_rules_file /etc/nginx/modsec/main.conf;' \
+            /etc/nginx/nginx.conf 2>/dev/null || true
+    fi
+
+    # load_module satırı (mod paketleri genelde /etc/nginx/modules-enabled altına ekler)
+    nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null \
+        || warn "ModSecurity sonrası nginx -t başarısız — /etc/nginx/modsec/ kontrol edin"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  AIDE — Dosya bütünlük kontrolü
+# ───────────────────────────────────────────────────────────────
+_install_aide() {
+    if ! command -v aide &>/dev/null; then
+        apt-get install -y -qq aide aide-common 2>/dev/null \
+            || { warn "AIDE kurulamadı — atlanıyor"; return; }
+    fi
+
+    # İlk veritabanını arka planda oluştur (uzun sürebilir)
+    if [[ ! -f /var/lib/aide/aide.db.gz && ! -f /var/lib/aide/aide.db ]]; then
+        info "AIDE veritabanı oluşturuluyor (arka planda)..."
+        ( aideinit -y -f 2>/dev/null || aide --init 2>/dev/null
+          [[ -f /var/lib/aide/aide.db.new.gz ]] && mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+        ) &
+    fi
+
+    # Günlük bütünlük kontrolü cron'u
+    local cron; cron=$(crontab -l 2>/dev/null || true)
+    if ! echo "$cron" | grep -q "aide --check"; then
+        (echo "$cron"; echo "30 5 * * * aide --check >> /usr/local/srvctl/logs/aide.log 2>&1") | crontab -
+    fi
+}
+
+# ───────────────────────────────────────────────────────────────
+#  ClamAV — Antivirüs (upload taraması)
+# ───────────────────────────────────────────────────────────────
+_install_clamav() {
+    if ! command -v clamscan &>/dev/null; then
+        apt-get install -y -qq clamav clamav-daemon 2>/dev/null \
+            || { warn "ClamAV kurulamadı — atlanıyor"; return; }
+    fi
+
+    # İmza veritabanını güncelle
+    systemctl stop clamav-freshclam 2>/dev/null || true
+    freshclam 2>/dev/null || warn "freshclam güncellemesi başarısız (sonra tekrar deneyin)"
+    systemctl start clamav-freshclam 2>/dev/null || true
+    systemctl enable clamav-daemon 2>/dev/null || true
+    systemctl start clamav-daemon 2>/dev/null || true
+
+    # Günlük upload tarama cron'u (tüm domain uploads dizinleri)
+    local cron; cron=$(crontab -l 2>/dev/null || true)
+    if ! echo "$cron" | grep -q "clamscan"; then
+        (echo "$cron"; echo "0 6 * * * clamscan -ri --quiet ${WEB_ROOT} >> /usr/local/srvctl/logs/clamav.log 2>&1") | crontab -
+    fi
+}
+
+# ───────────────────────────────────────────────────────────────
+#  GeoIP — Ülke bazlı engelleme veritabanı (ip.sh geoblock için)
+# ───────────────────────────────────────────────────────────────
+_install_geoip() {
+    apt-get install -y -qq libnginx-mod-http-geoip geoip-database geoip-bin 2>/dev/null \
+        || { warn "GeoIP paketleri bulunamadı — geoblock kısıtlı çalışır"; return; }
+
+    # nginx http bloğuna GeoIP veritabanı yolu (idempotent)
+    if [[ -f /usr/share/GeoIP/GeoIP.dat ]] && ! grep -q "geoip_country" /etc/nginx/nginx.conf 2>/dev/null; then
+        sed -i '/include \/etc\/nginx\/sites-enabled/i\    geoip_country /usr/share/GeoIP/GeoIP.dat;' \
+            /etc/nginx/nginx.conf 2>/dev/null || true
+    fi
+    nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
 }
