@@ -201,3 +201,30 @@ rate_profile_load() {
     RL_LOGIN_BURST=$(rate_profile_field "$profile" 5)
     RL_CONN=$(rate_profile_field "$profile" 6)
 }
+
+# ─── Per-Domain Meta (sır değil) ───
+
+# Domain meta dosyasını oku → RATE_PROFILE, SENSITIVE_PATHS değişkenlerine
+read_meta() {
+    local meta_file="${WEB_ROOT}/${1}/.srvctl-meta"
+    if [[ -f "$meta_file" ]]; then
+        # shellcheck disable=SC1090
+        source "$meta_file"
+    fi
+}
+
+# Meta dosyasına key=value ekle/güncelle (yoksa oluştur)
+write_meta() {
+    local domain="$1" key="$2" value="$3"
+    local meta_file="${WEB_ROOT}/${domain}/.srvctl-meta"
+    local escaped_value
+    escaped_value=$(printf '%q' "$value")
+    if [[ -f "$meta_file" ]] && grep -q "^${key}=" "$meta_file"; then
+        sed -i.bak "s|^${key}=.*|${key}=${escaped_value}|" "$meta_file"
+        rm -f "${meta_file}.bak"
+    else
+        echo "${key}=${escaped_value}" >> "$meta_file"
+    fi
+    chmod 644 "$meta_file" 2>/dev/null || true
+    chown root:root "$meta_file" 2>/dev/null || true
+}
