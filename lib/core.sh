@@ -152,3 +152,52 @@ read_credentials() {
         source "$creds_file"
     fi
 }
+
+# ─── Rate-Limit Profilleri ───
+SRVCTL_RATE_PROFILES="${SRVCTL_RATE_PROFILES:-${SRVCTL_ROOT}/conf/rate-profiles.conf}"
+
+# PHP-geneli varsayılan hassas yol regex'i (login/admin brute-force koruması)
+DEFAULT_SENSITIVE_PATHS='login|admin|auth|panel|dashboard|wp-login\.php|wp-admin|user/login'
+
+# Bir profilin conf satırını getir (yorum/boş satırlar hariç)
+rate_profile_line() {
+    [[ -f "$SRVCTL_RATE_PROFILES" ]] || return 1
+    grep -E "^${1}:" "$SRVCTL_RATE_PROFILES" 2>/dev/null | grep -v '^#' | head -1
+}
+
+# Bir profilin N. alanını getir (1=ad 2=req_zone 3=req_burst 4=login_zone 5=login_burst 6=conn)
+rate_profile_field() {
+    local line
+    line=$(rate_profile_line "$1") || return 1
+    [[ -z "$line" ]] && return 1
+    echo "$line" | cut -d: -f"$2"
+}
+
+# Tüm profil adlarını listele
+rate_profile_names() {
+    [[ -f "$SRVCTL_RATE_PROFILES" ]] || return 1
+    grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$SRVCTL_RATE_PROFILES" | cut -d: -f1
+}
+
+# Geçerli profil adını döndür; geçersiz/boş ise 'standard'a düş (uyarı stderr'e)
+rate_profile_resolve() {
+    local profile="$1"
+    if [[ -n "$profile" && -n "$(rate_profile_line "$profile")" ]]; then
+        echo "$profile"
+    else
+        [[ -n "$profile" ]] && warn "Bilinmeyen rate-limit profili: ${profile} — 'standard' kullanılıyor" >&2
+        echo "standard"
+    fi
+}
+
+# Profili global RL_* değişkenlerine yükle
+rate_profile_load() {
+    local profile
+    profile=$(rate_profile_resolve "$1")
+    RL_PROFILE="$profile"
+    RL_REQ_ZONE=$(rate_profile_field "$profile" 2)
+    RL_REQ_BURST=$(rate_profile_field "$profile" 3)
+    RL_LOGIN_ZONE=$(rate_profile_field "$profile" 4)
+    RL_LOGIN_BURST=$(rate_profile_field "$profile" 5)
+    RL_CONN=$(rate_profile_field "$profile" 6)
+}
