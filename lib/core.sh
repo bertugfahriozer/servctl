@@ -235,6 +235,46 @@ secure_dir() {
     chown root:root "$path" 2>/dev/null || true
 }
 
+# ─── Güvenli arşiv çıkarma (tar/zip-slip + symlink/hardlink reddi) ───
+# Çıkarmadan ÖNCE üyeleri listeler; mutlak yol (/), '..' veya symlink/hardlink
+# üye varsa HİÇ çıkarmadan 1 döner. Aksi halde dest_dir içine çıkarır, 0 döner.
+safe_extract() {
+    local archive="$1" dest="$2"
+    [[ -f "$archive" ]] || return 1
+    [[ -n "$dest" ]] || return 1
+
+    # Verbose listele: 1. sütun mod dizgesi ('l'=symlink, 'h'=hardlink), son sütun ad.
+    local listing
+    listing="$(tar -tvzf "$archive" 2>/dev/null)" || return 1
+    [[ -n "$listing" ]] || return 1
+
+    # Sadece üye adları (mutlak/.. kontrolü için): -tzf isim-bazlı liste.
+    local names
+    names="$(tar -tzf "$archive" 2>/dev/null)" || return 1
+
+    local name
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        # Mutlak yol
+        [[ "$name" == /* ]] && return 1
+        # '..' bileşeni (yol içinde herhangi yerde)
+        [[ "$name" == ".." || "$name" == "../"* || "$name" == *"/../"* || "$name" == *"/.." ]] && return 1
+    done <<< "$names"
+
+    # Symlink/hardlink üyesi: verbose mod dizgesinin ilk karakteri 'l' veya 'h'.
+    local line firstchar
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        firstchar="${line:0:1}"
+        [[ "$firstchar" == "l" || "$firstchar" == "h" ]] && return 1
+    done <<< "$listing"
+
+    # Güvenli: hedefe çıkar.
+    mkdir -p "$dest" || return 1
+    tar -xzf "$archive" -C "$dest" || return 1
+    return 0
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
