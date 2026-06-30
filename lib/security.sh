@@ -195,6 +195,36 @@ _security_audit() {
         info "${jail}: ${banned:-0} banned IP"
     done < <(fail2ban-client status 2>/dev/null | grep "Jail list" | sed 's/.*://;s/,/\n/g')
 
+    # ═══════════════════════════════════════════════════════════════
+    #  security.sh — EK KONTROL BLOĞU (Faz 1/7 yeni katmanlar)
+    #
+    #  Aşağıdaki bloğu lib/security.sh içindeki _security_audit
+    #  fonksiyonunda "═══ SONUÇ ═══" satırının HEMEN ÜSTÜNE ekleyin.
+    #  (_check/_pass/_fail yardımcıları o fonksiyon kapsamında tanımlı.)
+    # ═══════════════════════════════════════════════════════════════
+
+    # ═══ GELİŞMİŞ KATMANLAR (Faz 1) ═══
+    echo ""
+    echo -e "  ${CYAN}── Gelişmiş Güvenlik ──${NC}"
+
+    _warn_check "ModSecurity WAF aktif" \
+        "grep -q 'modsecurity on' /etc/nginx/nginx.conf 2>/dev/null"
+    _warn_check "OWASP CRS yüklü" \
+        "test -d /etc/nginx/owasp-crs/rules"
+    _warn_check "AIDE veritabanı mevcut" \
+        "test -f /var/lib/aide/aide.db.gz -o -f /var/lib/aide/aide.db"
+    _warn_check "ClamAV daemon çalışıyor" \
+        "systemctl is-active clamav-daemon"
+    _warn_check "cgroups v2 aktif" \
+        "test -f /sys/fs/cgroup/cgroup.controllers"
+    _warn_check "srvctl parent slice tanımlı" \
+        "test -f /etc/systemd/system/srvctl.slice"
+    _warn_check "PHP-FPM seccomp hardening (SystemCallFilter)" \
+        "test -f /etc/systemd/system/php${DEFAULT_PHP_VERSION}-fpm.service.d/10-srvctl-seccomp.conf"
+    _warn_check "GeoIP veritabanı mevcut" \
+        "test -f /usr/share/GeoIP/GeoIP.dat"
+
+
     # ═══ SONUÇ ═══
     echo ""
     divider

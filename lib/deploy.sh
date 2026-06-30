@@ -1,16 +1,80 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════
-#  deploy.sh — Git-based Zero-Downtime Deploy
-#  Atomic symlink switch ile kesintisiz deploy
+#  deploy.sh — Git-based Zero-Downtime Deploy (v2)
+#  Atomic symlink switch + dry-run + pre/post hook
+#  + health check (otomatik rollback) + rollback
 # ═══════════════════════════════════════════════
 
 cmd_deploy() {
     require_root
+    case "${1:-}" in
+        rollback) _deploy_rollback "${@:2}" ;;
+        health)   _deploy_health "${@:2}" ;;
+        list)     _deploy_list "${@:2}" ;;
+        ""|help|-h|--help)
+            echo ""
+            echo "  Kullanım: srvctl deploy <domain> [branch] [--dry-run]"
+            echo ""
+            echo "    <domain> [branch]      Deploy et (varsayılan branch: main)"
+            echo "    --dry-run              Sadece dene, canlıya geçirme"
+            echo "    rollback <domain>      Bir önceki sürüme dön"
+            echo "    health <domain>        Sağlık kontrolü çalıştır"
+            echo "    list <domain>          Mevcut release'leri listele"
+            echo ""
+            ;;
+        *) _deploy_run "$@" ;;
+    esac
+}
 
+# bin/srvctl 'rollback' komutunu doğrudan buraya yönlendirir
+cmd_rollback() {
+    require_root
+    _deploy_rollback "$@"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  Yardımcı: hook çalıştır (varsa)
+#  ${base}/shared/hooks/pre-deploy.sh  ve  post-deploy.sh
+# ───────────────────────────────────────────────────────────────
+_run_hook() {
+    local hook_file="$1" release="$2" domain="$3"
+    if [[ -f "$hook_file" ]]; then
+        info "Hook çalıştırılıyor: $(basename "$hook_file")"
+        RELEASE_DIR="$release" DOMAIN="$domain" bash "$hook_file" \
+            || warn "Hook hata döndürdü: $(basename "$hook_file")"
+    fi
+}
+
+# ───────────────────────────────────────────────────────────────
+#  Yardımcı: sağlık kontrolü — localhost'a Host header ile istek
+#  Çıktı: HTTP kodu (son satır)
+# ───────────────────────────────────────────────────────────────
+_health_probe() {
     local domain="$1"
-    local branch="${2:-main}"
+    local code
+    code=$(curl -sk -o /dev/null -w "%{http_code}" \
+        --max-time 10 -H "Host: ${domain}" "https://127.0.0.1/" 2>/dev/null)
+    if [[ -z "$code" || "$code" == "000" ]]; then
+        code=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 -H "Host: ${domain}" "http://127.0.0.1/" 2>/dev/null)
+    fi
+    echo "${code:-000}"
+}
 
-    [[ -z "$domain" ]] && error "Kullanım: srvctl deploy <domain> [branch]"
+# ───────────────────────────────────────────────────────────────
+#  deploy <domain> [branch] [--dry-run]
+# ───────────────────────────────────────────────────────────────
+_deploy_run() {
+    local domain="" branch="main" dry_run=0
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=1 ;;
+            --*) warn "Bilinmeyen seçenek: ${arg}" ;;
+            *) if [[ -z "$domain" ]]; then domain="$arg"; else branch="$arg"; fi ;;
+        esac
+    done
+
+    [[ -z "$domain" ]] && error "Kullanım: srvctl deploy <domain> [branch] [--dry-run]"
     domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
 
     local sname
@@ -20,140 +84,210 @@ cmd_deploy() {
     local shared_dir="${base}/shared"
     local public_dir="${base}/public_html"
 
-    # Credentials oku
     read_credentials "$domain"
     local php_version="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
     local web_user="${WEB_USER:-web_${sname}}"
 
+    local prev_target=""
+    [[ -L "$public_dir" ]] && prev_target=$(readlink -f "$public_dir")
+
     header "Deploy: ${domain} (branch: ${branch})"
+    [[ "$dry_run" == "1" ]] && warn "DRY-RUN modu: değişiklik canlıya YANSIMAYACAK."
 
-    # ─── Git repo URL ───
-    local repo_url=""
-    local repo_file="${base}/.deploy-repo"
-
-    if [[ -f "$repo_file" ]]; then
-        repo_url=$(cat "$repo_file")
-    fi
-
+    # Git repo URL
+    local repo_url="" repo_file="${base}/.deploy-repo"
+    [[ -f "$repo_file" ]] && repo_url=$(cat "$repo_file")
     if [[ -z "$repo_url" ]]; then
         read -rp "  Git repo URL'si: " repo_url
         [[ -z "$repo_url" ]] && error "Repo URL'si boş olamaz."
         echo "$repo_url" > "$repo_file"
-        chmod 600 "$repo_file"
-        chown root:root "$repo_file"
+        chmod 600 "$repo_file"; chown root:root "$repo_file"
         info "Repo kaydedildi: ${repo_file}"
     fi
 
-    # ─── 1. Clone ───
+    # 1. Clone
     step "1/7" "Git clone (branch: ${branch})..."
     mkdir -p "${base}/releases"
-    git clone --depth 1 --branch "${branch}" "${repo_url}" "${release_dir}" 2>/dev/null || \
-        error "Git clone başarısız. Repo URL'si ve branch'i kontrol edin."
+    git clone --depth 1 --branch "${branch}" "${repo_url}" "${release_dir}" 2>/dev/null \
+        || error "Git clone başarısız. Repo URL'si ve branch'i kontrol edin."
     success "Clone tamamlandı"
 
-    # ─── 2. Composer Install ───
+    # 2. Composer
     step "2/7" "Composer install..."
-    if [[ -f "${release_dir}/composer.json" ]]; then
-        cd "${release_dir}"
-        if command -v composer &>/dev/null; then
-            composer install --no-dev --optimize-autoloader --no-interaction --quiet 2>/dev/null
-            success "Composer paketleri yüklendi"
-        else
-            warn "Composer bulunamadı — elle kurun: apt install composer"
-        fi
+    if [[ -f "${release_dir}/composer.json" ]] && command -v composer &>/dev/null; then
+        ( cd "${release_dir}" && composer install --no-dev --optimize-autoloader --no-interaction --quiet 2>/dev/null ) \
+            && success "Composer paketleri yüklendi" \
+            || warn "Composer install hatası"
     else
-        info "composer.json bulunamadı — atlanıyor"
+        info "composer.json yok veya composer kurulu değil — atlanıyor"
     fi
 
-    # ─── 3. Shared dosyalar ───
-    step "3/7" "Shared dosyalar bağlanıyor..."
-    mkdir -p "${shared_dir}"
+    # 3. Pre-deploy hook
+    step "3/7" "Pre-deploy hook..."
+    _run_hook "${shared_dir}/hooks/pre-deploy.sh" "${release_dir}" "${domain}"
 
-    # .env dosyası
+    # 4. Shared dosyalar
+    step "4/7" "Shared dosyalar bağlanıyor..."
+    mkdir -p "${shared_dir}"
     if [[ -f "${shared_dir}/.env" ]]; then
         ln -sf "${shared_dir}/.env" "${release_dir}/.env"
         success ".env bağlandı"
     else
         warn ".env bulunamadı: ${shared_dir}/.env"
-        warn "Oluşturun: cp ${release_dir}/env ${shared_dir}/.env && nano ${shared_dir}/.env"
     fi
-
-    # writable dizini (shared)
     if [[ -d "${shared_dir}/writable" ]]; then
         rm -rf "${release_dir}/writable"
         ln -sf "${shared_dir}/writable" "${release_dir}/writable"
-        success "writable/ bağlandı (shared)"
-    else
-        # İlk deploy ise, mevcut writable'ı shared'a taşı
-        if [[ -d "${release_dir}/writable" ]]; then
-            cp -r "${release_dir}/writable" "${shared_dir}/writable"
-            rm -rf "${release_dir}/writable"
-            ln -sf "${shared_dir}/writable" "${release_dir}/writable"
-            success "writable/ shared'a taşındı"
-        fi
+    elif [[ -d "${release_dir}/writable" ]]; then
+        cp -r "${release_dir}/writable" "${shared_dir}/writable"
+        rm -rf "${release_dir}/writable"
+        ln -sf "${shared_dir}/writable" "${release_dir}/writable"
     fi
 
-    # ─── 4. CI4 Dizin Yapısını Ayarla ───
-    step "4/7" "CI4 dizin yapısı ayarlanıyor..."
-    # public dizinindeki index.php'yi public_html'e yönlendir
-    local ci4_public="${release_dir}/public"
-    if [[ ! -d "$ci4_public" ]]; then
-        ci4_public="${release_dir}"
-    fi
-
-    # ─── 5. Sahiplik ve İzinler ───
+    # 5. İzinler
     step "5/7" "İzinler ayarlanıyor..."
     chown -R "${web_user}:${web_user}" "${release_dir}"
     chmod -R 750 "${release_dir}"
-
-    # writable dizini yazılabilir olmalı
     if [[ -d "${shared_dir}/writable" ]]; then
         chmod -R 770 "${shared_dir}/writable"
         chown -R "${web_user}:${web_user}" "${shared_dir}/writable"
     fi
-
     success "İzinler ayarlandı"
 
-    # ─── 6. Atomic Switch ───
-    step "6/7" "Atomic switch (zero-downtime)..."
+    # DRY-RUN: burada dur
+    if [[ "$dry_run" == "1" ]]; then
+        echo ""
+        warn "DRY-RUN: Release hazırlandı ama canlıya geçirilmedi:"
+        echo "    ${release_dir}"
+        rm -rf "${release_dir}"
+        info "Gerçek deploy için --dry-run olmadan çalıştırın."
+        return
+    fi
 
-    # Eski public_html'i yedekle
+    # 6. Atomic switch
+    step "6/7" "Atomic switch (zero-downtime)..."
     if [[ -d "$public_dir" && ! -L "$public_dir" ]]; then
         mv "$public_dir" "${base}/public_html.bak.$(date +%s)" 2>/dev/null || true
     fi
-
-    # CI4'te public dizini varsa onu kullan, yoksa release kökünü
     if [[ -d "${release_dir}/public" ]]; then
         ln -sfn "${release_dir}/public" "$public_dir"
     else
         ln -sfn "${release_dir}" "$public_dir"
     fi
-
+    systemctl reload "php${php_version}-fpm" 2>/dev/null || true
     success "Atomic switch tamamlandı"
 
-    # ─── 7. Reload ───
-    step "7/7" "Servisler yenileniyor..."
-    systemctl reload "php${php_version}-fpm" 2>/dev/null || true
-
-    # Eski release'leri temizle (son 5'i tut)
-    if [[ -d "${base}/releases" ]]; then
-        cd "${base}/releases"
-        local release_count
-        release_count=$(find . -maxdepth 1 -type d ! -name '.' | wc -l)
-        if [[ $release_count -gt 5 ]]; then
-            ls -t | tail -n +"6" | xargs -r rm -rf
-            info "Eski release'ler temizlendi (son 5 tutuldu)"
+    # 7. Health check + gerekirse otomatik rollback
+    step "7/7" "Sağlık kontrolü..."
+    local code; code=$(_health_probe "$domain")
+    if [[ "$code" =~ ^(200|301|302)$ ]]; then
+        success "Sağlık kontrolü OK (HTTP ${code})"
+        _run_hook "${shared_dir}/hooks/post-deploy.sh" "${release_dir}" "${domain}"
+    else
+        warn "Sağlık kontrolü BAŞARISIZ (HTTP ${code}) — otomatik rollback!"
+        if [[ -n "$prev_target" && -d "$prev_target" ]]; then
+            rm -rf "$public_dir"
+            ln -sfn "$prev_target" "$public_dir"
+            systemctl reload "php${php_version}-fpm" 2>/dev/null || true
+            rm -rf "${release_dir}"
+            error "Deploy geri alındı. Önceki sürüm geri yüklendi: ${prev_target}"
+        else
+            error "Geri alınacak önceki sürüm yok. Manuel müdahale: ${release_dir}"
         fi
     fi
 
-    success "Servisler yenilendi"
+    # Eski release temizliği (son 5)
+    if [[ -d "${base}/releases" ]]; then
+        ( cd "${base}/releases" && ls -t 2>/dev/null | tail -n +6 | xargs -r rm -rf )
+    fi
 
     header "✅ Deploy Tamamlandı: ${domain}"
-
-    echo "  Release:        ${release_dir}"
+    echo "  Release:        $(basename "${release_dir}")"
     echo "  Branch:         ${branch}"
     echo "  public_html →   $(readlink -f "$public_dir" 2>/dev/null)"
+    echo "  HTTP:           ${code}"
     echo ""
+    log_action "DEPLOY: ${domain} (branch=${branch}, http=${code}, release=$(basename "${release_dir}"))"
+}
 
-    log_action "DEPLOY: ${domain} (branch=${branch}, release=$(basename "${release_dir}"))"
+# ───────────────────────────────────────────────────────────────
+#  deploy rollback <domain>  /  srvctl rollback <domain>
+# ───────────────────────────────────────────────────────────────
+_deploy_rollback() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl rollback <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+
+    local base="${WEB_ROOT}/${domain}"
+    local public_dir="${base}/public_html"
+    local releases="${base}/releases"
+    [[ -d "$releases" ]] || error "Release dizini yok: ${releases}"
+
+    read_credentials "$domain"
+    local php_version="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+
+    local current_real=""; [[ -L "$public_dir" ]] && current_real=$(readlink -f "$public_dir")
+    local current_rel="${current_real%/public}"
+
+    # Mevcut release'den bir öncekini bul
+    local prev="" found=0
+    while read -r r; do
+        [[ -z "$r" ]] && continue
+        local full="${releases}/${r}"
+        if [[ "$found" == "1" ]]; then prev="$full"; break; fi
+        [[ "$full" == "$current_rel" ]] && found=1
+    done < <(ls -t "$releases" 2>/dev/null)
+
+    if [[ -z "$prev" ]]; then
+        prev=$(ls -dt "${releases}"/*/ 2>/dev/null | sed -n '2p'); prev="${prev%/}"
+    fi
+    [[ -z "$prev" || ! -d "$prev" ]] && error "Geri alınacak önceki release bulunamadı."
+
+    header "Rollback: ${domain} → $(basename "$prev")"
+    rm -rf "$public_dir"
+    if [[ -d "${prev}/public" ]]; then ln -sfn "${prev}/public" "$public_dir"; else ln -sfn "${prev}" "$public_dir"; fi
+    systemctl reload "php${php_version}-fpm" 2>/dev/null || true
+
+    local code; code=$(_health_probe "$domain")
+    if [[ "$code" =~ ^(200|301|302)$ ]]; then
+        success "Rollback başarılı: $(basename "$prev") (HTTP ${code})"
+    else
+        warn "Rollback yapıldı ama sağlık kontrolü zayıf (HTTP ${code})"
+    fi
+    log_action "ROLLBACK: ${domain} -> $(basename "$prev")"
+}
+
+# ───────────────────────────────────────────────────────────────
+#  deploy health <domain>
+# ───────────────────────────────────────────────────────────────
+_deploy_health() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl deploy health <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+    local code; code=$(_health_probe "$domain")
+    if [[ "$code" =~ ^(200|301|302)$ ]]; then
+        success "${domain} sağlıklı (HTTP ${code})"
+    else
+        error "${domain} sağlıksız (HTTP ${code})"
+    fi
+}
+
+# ───────────────────────────────────────────────────────────────
+#  deploy list <domain>
+# ───────────────────────────────────────────────────────────────
+_deploy_list() {
+    local domain="$1"
+    [[ -z "$domain" ]] && error "Kullanım: srvctl deploy list <domain>"
+    domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
+    local base="${WEB_ROOT}/${domain}"
+    local current_real=""; [[ -L "${base}/public_html" ]] && current_real=$(readlink -f "${base}/public_html")
+    header "Release'ler: ${domain}"
+    local r full marker
+    while read -r r; do
+        [[ -z "$r" ]] && continue
+        full="${base}/releases/${r}"; marker="  "
+        [[ "$current_real" == "${full}/public" || "$current_real" == "$full" ]] && marker="${GREEN}→ ${NC}"
+        echo -e "  ${marker}${r}"
+    done < <(ls -t "${base}/releases" 2>/dev/null)
+    echo ""
 }
