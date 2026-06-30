@@ -31,11 +31,19 @@ cmd_ip() {
     esac
 }
 
+# ─── Test edilebilir doğrulama kapıları (predicate; error/exit YOK) ───
+# Komut girişlerinde kullanılan predikatları birebir uygular.
+_ip_value_gate()    { validate_ip_or_cidr "$1"; }
+_ip_duration_gate() { [[ "$1" == "permanent" ]] || validate_uint "$1"; }
+_ip_geoblock_gate() { validate_country "$(echo "$1" | tr '[:lower:]' '[:upper:]')"; }
+
 _ip_ban() {
     local ip="$1"
     local duration="${2:-86400}"  # varsayılan 24 saat
 
     [[ -z "$ip" ]] && error "IP belirtilmedi."
+    _ip_value_gate "$ip" || error "Geçersiz IP/CIDR: ${ip}"
+    _ip_duration_gate "$duration" || error "Geçersiz süre: ${duration} (saniye sayısı veya 'permanent')"
 
     # UFW ile engelle
     ufw insert 1 deny from "$ip" to any comment "srvctl-ban-$(date +%s)" > /dev/null 2>&1
@@ -76,6 +84,7 @@ _ip_whitelist() {
     case "$action" in
         add)
             [[ -z "$ip" ]] && error "IP belirtilmedi."
+            _ip_value_gate "$ip" || error "Geçersiz IP/CIDR: ${ip}"
             echo "$ip" >> "$whitelist_file"
             sort -u -o "$whitelist_file" "$whitelist_file"
 
@@ -111,6 +120,7 @@ _ip_blacklist() {
     case "$action" in
         add)
             [[ -z "$ip" ]] && error "IP belirtilmedi."
+            _ip_value_gate "$ip" || error "Geçersiz IP/CIDR: ${ip}"
             echo "$ip" >> "$blacklist_file"
             sort -u -o "$blacklist_file" "$blacklist_file"
 
@@ -198,6 +208,7 @@ _ip_geoblock() {
         add)
             [[ -z "$country" ]] && error "Ülke kodu belirtilmedi (ör: CN, RU, KP)"
             country=$(echo "$country" | tr '[:lower:]' '[:upper:]')
+            validate_country "$country" || error "Geçersiz ülke kodu: ${country} (2 harfli ISO, ör: CN, RU)"
             echo "$country" >> "$geoblock_file"
             sort -u -o "$geoblock_file" "$geoblock_file"
 
