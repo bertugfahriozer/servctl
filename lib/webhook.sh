@@ -152,6 +152,25 @@ WEBHOOK_PORT="${WEBHOOK_PORT:-9443}"
 source "${SRVCTL_ROOT}/conf/srvctl.conf"
 source "${SRVCTL_ROOT}/lib/core.sh"
 
+# _webhook_verify_sig <secret> <payload> <header_value>  (T5.1 ile birebir aynı)
+# GitHub X-Hub-Signature-256 doğrulaması (fail-closed). lib/webhook.sh source
+# edilmediği için kopya zorunlu; sözleşme tests/test_webhook_listener_sig.sh ile kilitli.
+_webhook_verify_sig() {
+    local secret="$1" payload="$2" header="$3"
+    [[ -z "$secret" ]] && return 1
+    [[ -z "$header" ]] && return 1
+    local expected
+    expected="sha256=$(printf '%s' "$payload" \
+        | openssl dgst -sha256 -hmac "$secret" 2>/dev/null \
+        | awk '{print $NF}')"
+    [[ "$expected" == "sha256=" ]] && return 1
+    local h_recv h_exp
+    h_recv="$(printf '%s' "$header"  | openssl dgst -sha256 | awk '{print $NF}')"
+    h_exp="$(printf '%s' "$expected" | openssl dgst -sha256 | awk '{print $NF}')"
+    [[ "$h_recv" == "$h_exp" ]] && return 0
+    return 1
+}
+
 handle_request() {
     local request=""
     local content_length=0
@@ -183,21 +202,20 @@ handle_request() {
         if [[ -f "$conf" ]]; then
             source "$conf"
 
-            # Signature doğrulama (GitHub)
-            # TODO(T5.2): GÜVENLIK AÇIĞI — FAIL-OPEN: hub_sig boşsa (header eksikse)
-            # aşağıdaki `&&` koşulu atlanır ve imzasız istek kabul edilir.
-            # T5.2'de bu blok _webhook_verify_sig çağrısıyla fail-closed mantığına
-            # dönüştürülecek; header eksik/boş veya secret boşsa 403 dönecek.
+            # WEBHOOK_SECRET zorunlu — yoksa fail-closed (servis etme)
+            if [[ -z "${WEBHOOK_SECRET:-}" ]]; then
+                echo -e "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nWebhook secret tanımsız"
+                log_action "WEBHOOK REJECTED: ${sname} (secret tanımsız)"
+                return
+            fi
+
+            # Signature doğrulama (GitHub) — fail-closed: header HER ZAMAN gerekli
             local hub_sig
             hub_sig=$(echo -e "$request" | grep -i "X-Hub-Signature-256" | awk '{print $2}' | tr -d '\r')
-            if [[ -n "$hub_sig" && -n "${WEBHOOK_SECRET}" ]]; then
-                local expected
-                expected="sha256=$(echo -n "$body" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" | awk '{print $2}')"
-                if [[ "$hub_sig" != "$expected" ]]; then
-                    echo -e "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nInvalid signature"
-                    log_action "WEBHOOK REJECTED: ${sname} (invalid signature)"
-                    return
-                fi
+            if ! _webhook_verify_sig "${WEBHOOK_SECRET}" "$body" "$hub_sig"; then
+                echo -e "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nImza geçersiz"
+                log_action "WEBHOOK REJECTED: ${sname} (imza geçersiz/eksik)"
+                return
             fi
 
             # Branch kontrolü
