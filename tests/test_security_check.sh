@@ -20,7 +20,8 @@ assert_eq "$(_security_run_check ok bad 'yanlış kontrol' false)" "BAD:yanlış
 SIDE="$(mktemp -u)"
 # 'test -e <olmayan>' false döner -> bad; ama hicbir sekilde touch CALISMAMALI
 _security_run_check ok bad 'enjeksiyon denemesi' test -e "\$(touch ${SIDE})" >/dev/null 2>&1 || true
-assert_fail test -e "${SIDE}"  "argümanlar eval edilmedi (yan-etki yok)"
+echo '# argümanlar eval edilmedi (yan-etki yok)'
+assert_fail test -e "${SIDE}"
 
 rm -f "${SIDE}"
 rm -rf "$WEB_ROOT"
