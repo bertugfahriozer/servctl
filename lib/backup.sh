@@ -34,6 +34,14 @@ _backup_secure_artifact() {
     secure_file "$1" 600
 }
 
+# Restore: tek bir files tarball'ını güvenle çıkar (zip-slip/symlink reddi).
+# safe_extract mutlak yol/'..'/symlink üyesi varsa çıkarmadan reddeder.
+# Saf yardımcı: mysql/systemctl gerektirmez.
+_backup_restore_files() {
+    local tar_gz="$1" dest="$2"
+    safe_extract "$tar_gz" "$dest"
+}
+
 _backup_run() {
     local target_domain="$1"
     local today
@@ -205,15 +213,18 @@ _backup_restore() {
             warn "DB geri yükleme hatası: ${db_name}"
     done
 
-    # Dosya geri yükleme
+    # Dosya geri yükleme (safe_extract — zip-slip/symlink reddi, WEB_ROOT altına)
     for tar_gz in "${backup_path}"/*-files.tar.gz; do
         [[ ! -f "$tar_gz" ]] && continue
         local domain
         domain=$(basename "$tar_gz" -files.tar.gz)
         step "FILES" "Geri yükleniyor: ${domain}"
-        safe_extract "$tar_gz" / && \
-            success "Dosyalar geri yüklendi: ${domain}" || \
-            warn "Dosya geri yükleme hatası: ${domain}"
+        if _backup_restore_files "$tar_gz" "${WEB_ROOT}"; then
+            success "Dosyalar geri yüklendi: ${domain}"
+        else
+            warn "Güvenli çıkarma reddedildi (mutlak yol/.. /symlink): ${domain}"
+            warn "Eski mutlak yollu yedekler için güvenilir ortamda manuel çıkarın."
+        fi
     done
 
     # Redis
