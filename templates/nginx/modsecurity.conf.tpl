@@ -44,6 +44,8 @@ Include /etc/nginx/owasp-crs/rules/*.conf
 SecRule REQUEST_HEADERS:Content-Type "application/x-www-form-urlencoded" \
     "id:200010,phase:1,t:none,nolog,pass,ctl:requestBodyProcessor=URLENCODED"
 
-# CI4 admin panel yolları için bazı kuralları gevşet
+# CI4 admin: yalnız bilinen yanlış-pozitif XSS kuralı (941160 — zengin-metin
+# alanlarında HTML-injection checker). XSS ailesinin (941xxx) geri kalanı /admin/
+# için de AKTİF kalır; operatör ihtiyaca göre ek ID ekleyebilir.
 SecRule REQUEST_URI "@beginsWith /admin/" \
-    "id:200020,phase:1,t:none,nolog,pass,ctl:ruleRemoveById=941100-941999"
+    "id:200020,phase:1,t:none,nolog,pass,ctl:ruleRemoveById=941160"
