@@ -390,9 +390,13 @@ list_all_domains() {
 }
 
 # Credentials dosyasını oku (source DEĞİL — katı parse)
+# Sahiplik kapısı: hardened domain + root-owned-değil → tamper → error (çıkış).
+# Migrate edilmemiş (marker yok) → warn stderr + oku.
 read_credentials() {
     local domain="$1"
     local creds_file="${WEB_ROOT}/${domain}/.credentials"
+    _require_owned_or_warn "$domain" "$creds_file" \
+        || error "Güvenlik: ${creds_file} root-owned değil (tamper). Okuma reddedildi."
     read_kv_file "$creds_file" \
         DOMAIN SAFE_NAME WEB_USER PHP_VERSION \
         DB_NAME DB_USER DB_PASS \
@@ -466,8 +470,13 @@ rate_profile_load() {
 # ─── Per-Domain Meta (sır değil) ───
 
 # Domain meta dosyasını oku (source DEĞİL — katı parse)
+# Sahiplik kapısı: hardened domain + root-owned-değil → tamper → error (çıkış).
+# Migrate edilmemiş (marker yok) → warn stderr + oku.
 read_meta() {
     local meta_file="${WEB_ROOT}/${1}/.srvctl-meta"
+    [[ -f "$meta_file" ]] || return 0
+    _require_owned_or_warn "$1" "$meta_file" \
+        || error "Güvenlik: ${meta_file} root-owned değil (tamper). Okuma reddedildi."
     read_kv_file "$meta_file" RATE_PROFILE SENSITIVE_PATHS
 }
 

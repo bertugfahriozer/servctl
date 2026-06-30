@@ -19,7 +19,7 @@ assert_eq "$(grep -c '^RATE_PROFILE=' "${WEB_ROOT}/example.com/.srvctl-meta")" "
 # read_meta: değişkenleri yükler
 unset RATE_PROFILE
 write_meta example.com SENSITIVE_PATHS 'login|admin'
-read_meta example.com
+read_meta example.com 2>/dev/null
 assert_eq "${RATE_PROFILE:-}"    "relaxed"     "read_meta RATE_PROFILE"
 assert_eq "${SENSITIVE_PATHS:-}" "login|admin" "read_meta SENSITIVE_PATHS"
 
@@ -30,7 +30,7 @@ assert_ok read_meta yokboyle.com
 write_meta example.com SENSITIVE_PATHS 'login|admin|wp-login\.php'
 write_meta example.com SENSITIVE_PATHS 'admin|backend&x'   # update, özel karakterli
 unset SENSITIVE_PATHS
-read_meta example.com
+read_meta example.com 2>/dev/null
 assert_eq "${SENSITIVE_PATHS:-}" 'admin|backend&x' "özel karakter update round-trip"
 assert_eq "$(grep -c '^SENSITIVE_PATHS=' "${WEB_ROOT}/example.com/.srvctl-meta")" "1" "update sonrası duplicate yok"
 

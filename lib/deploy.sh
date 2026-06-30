@@ -122,6 +122,11 @@ _deploy_run() {
         info "Repo kaydedildi: ${repo_file}"
     fi
 
+    # Sahiplik kapısı: dosya varsa root-owned kontrolü (T1 bütünlük kapısı).
+    # repo_file yoksa interaktif sorulur; varsa kapı: tamper'da aşağıdaki validate zaten reddeder.
+    [[ -f "$repo_file" ]] && _require_owned_or_warn "$domain" "$repo_file" \
+        || true
+
     # Güvenlik: web-yazılabilir .deploy-repo'dan gelen URL'yi ve branch'i clone'dan
     # önce doğrula (ext::/file:: git RCE + option-injection reddi).
     _deploy_validate_repo_url "$repo_url" \
