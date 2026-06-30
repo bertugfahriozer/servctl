@@ -1076,8 +1076,12 @@ _domain_migrate() {
     header "Migrasyon: ${domain} → ${remote}"
 
     step "1/3" "Dosyalar arşivleniyor..."
-    tar czf "${bundle}/files.tar.gz" -C "${WEB_ROOT}" "${domain}" 2>/dev/null
+    # NOT: .credentials/.srvctl-meta tarball'a girmez (sır sızıntısı); credentials
+    # ayrı 0600 dosya olarak taşınır. Relatif yol → karşı uçta safe_extract uyumlu.
+    source "${SRVCTL_ROOT}/lib/backup.sh" 2>/dev/null || true
+    _backup_files_tar "${domain}" "${WEB_ROOT}" "${bundle}/files.tar.gz" 2>/dev/null
     cp "${base}/.credentials" "${bundle}/credentials" 2>/dev/null || true
+    secure_file "${bundle}/credentials" 600
 
     step "2/3" "Veritabanı dökümü (${db})..."
     mysqldump --single-transaction --routines --triggers "${db}" 2>/dev/null | gzip > "${bundle}/db.sql.gz" \

@@ -42,6 +42,24 @@ _backup_restore_files() {
     safe_extract "$tar_gz" "$dest"
 }
 
+# Per-domain dosya tarball'ı (relatif yol + sır/kontrol dosyalarını hariç tut).
+# .credentials/.srvctl-meta sır/kontrol dosyalarıdır; yedek paketine girmemeli
+# (paket world-readable olabilir + safe_extract restore'u için relatif yol şart).
+# Saf yardımcı: mysql/nginx gerektirmez.
+_backup_files_tar() {
+    local domain="$1" web_root="$2" out_tar="$3"
+    tar czf "$out_tar" -C "$web_root" \
+        --exclude='*.log' \
+        --exclude="${domain}/cache/*" \
+        --exclude="${domain}/releases/*" \
+        --exclude="${domain}/sessions/*" \
+        --exclude="${domain}/tmp/*" \
+        --exclude="${domain}/.credentials" \
+        --exclude="${domain}/.srvctl-meta" \
+        --exclude="${domain}/.deploy-repo" \
+        "$domain"
+}
+
 _backup_run() {
     local target_domain="$1"
     local today
@@ -89,13 +107,9 @@ _backup_run() {
             continue
         fi
 
-        tar czf "${backup_path}/${domain}-files.tar.gz" \
-            --exclude='*.log' \
-            --exclude='cache/*' \
-            --exclude='releases/*' \
-            --exclude='sessions/*' \
-            --exclude='tmp/*' \
-            "${dir}" 2>/dev/null || warn "Dosya yedeklemesinde hata: ${domain}"
+        # Relatif yol + .credentials/.srvctl-meta hariç (safe_extract uyumlu, sır sızdırmaz)
+        _backup_files_tar "$domain" "${WEB_ROOT}" "${backup_path}/${domain}-files.tar.gz" \
+            2>/dev/null || warn "Dosya yedeklemesinde hata: ${domain}"
         _backup_secure_artifact "${backup_path}/${domain}-files.tar.gz"
 
         file_count=$((file_count + 1))
