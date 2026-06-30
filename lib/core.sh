@@ -58,6 +58,13 @@ load_config() {
     BACKUP_DIR="${BACKUP_DIR:-/backups}"
     BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
     DEPLOYER_USER="${DEPLOYER_USER:-deployer}"
+
+    # Doğrulama (sshd/ufw/fail2ban ve tüm domain yollarının kaynağı — fail-closed).
+    # validate_uint Foundation'da tanımlı; tanımlı değilse (kaynak sırası) atla.
+    if declare -F validate_uint >/dev/null 2>&1; then
+        validate_uint "$SSH_PORT" 65535 || error "Geçersiz SSH_PORT: ${SSH_PORT} (1-65535 arası tam sayı)"
+    fi
+    [[ "$WEB_ROOT" == /* ]] || error "Geçersiz WEB_ROOT: ${WEB_ROOT} (mutlak yol olmalı)"
 }
 
 load_config
