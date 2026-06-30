@@ -33,6 +33,8 @@ _webhook_verify_sig() {
 
     # Sabit-zamanlı karşılaştırma: her iki dizgenin SHA-256'sını al,
     # böylece uzunluk farkı ve byte-byte erken-çıkış sızıntısı olmaz.
+    # NOT: Bash [[==]] tam anlamıyla sabit-zamanlı değil; ancak eşit uzunluklu
+    # hash karşılaştırması pratik timing saldırılarını önemli ölçüde zorlaştırır.
     local h_recv h_exp
     h_recv="$(printf '%s' "$header"   | openssl dgst -sha256 | awk '{print $NF}')"
     h_exp="$(printf '%s' "$expected"  | openssl dgst -sha256 | awk '{print $NF}')"
@@ -182,6 +184,10 @@ handle_request() {
             source "$conf"
 
             # Signature doğrulama (GitHub)
+            # TODO(T5.2): GÜVENLIK AÇIĞI — FAIL-OPEN: hub_sig boşsa (header eksikse)
+            # aşağıdaki `&&` koşulu atlanır ve imzasız istek kabul edilir.
+            # T5.2'de bu blok _webhook_verify_sig çağrısıyla fail-closed mantığına
+            # dönüştürülecek; header eksik/boş veya secret boşsa 403 dönecek.
             local hub_sig
             hub_sig=$(echo -e "$request" | grep -i "X-Hub-Signature-256" | awk '{print $2}' | tr -d '\r')
             if [[ -n "$hub_sig" && -n "${WEBHOOK_SECRET}" ]]; then
