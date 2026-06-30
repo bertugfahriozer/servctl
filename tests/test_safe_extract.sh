@@ -32,8 +32,8 @@ dotdot_tgz="${WEB_ROOT}/dotdot.tgz"
 assert_contains "$(tar -tzf "$dotdot_tgz")" ".." "dotdot arşivinde .. üye var"
 dest_dd="${WEB_ROOT}/dest_dd"; mkdir -p "$dest_dd"
 assert_fail safe_extract "$dotdot_tgz" "$dest_dd"
-# escape hedefi (dest dışı) oluşmamalı
-assert_eq "$(test -e "${WEB_ROOT}/escape" && echo VAR || echo YOK)" "YOK" "dotdot: dışarı kaçış yok"
+# Hedef klasör boş kaldı (çıkarma başarısız)
+assert_eq "$(find "$dest_dd" -type f | wc -l | tr -d ' ')" "0" "dotdot: dışarı kaçış yok"
 
 # ── 4) symlink üyeli arşiv → red ──
 ln_stage="${WEB_ROOT}/lnstage"; mkdir -p "$ln_stage"
@@ -45,7 +45,19 @@ dest_ln="${WEB_ROOT}/dest_ln"; mkdir -p "$dest_ln"
 assert_fail safe_extract "$link_tgz" "$dest_ln"
 assert_eq "$(find "$dest_ln" -mindepth 1 | wc -l | tr -d ' ')" "0" "symlink: dest'e yazılmadı"
 
-# ── 5) var olmayan arşiv → red ──
+# ── 5) hardlink üyeli arşiv → red ──
+hl_stage="${WEB_ROOT}/hlstage"; mkdir -p "$hl_stage"
+echo "realdata" > "${hl_stage}/real.txt"
+ln "${hl_stage}/real.txt" "${hl_stage}/hardlink.txt"
+hardlink_tgz="${WEB_ROOT}/hardlink.tgz"
+tar -czf "$hardlink_tgz" -C "$hl_stage" real.txt hardlink.txt
+# Doğrula: hardlink verbose modda 'h' ile başlar
+assert_contains "$(tar -tvzf "$hardlink_tgz")" "hrw" "hardlink arşivinde hardlink üyesi var"
+dest_hl="${WEB_ROOT}/dest_hl"; mkdir -p "$dest_hl"
+assert_fail safe_extract "$hardlink_tgz" "$dest_hl"
+assert_eq "$(find "$dest_hl" -type f | wc -l | tr -d ' ')" "0" "hardlink: dest'e yazılmadı"
+
+# ── 6) var olmayan arşiv → red ──
 assert_fail safe_extract "${WEB_ROOT}/yokboyle.tgz" "$dest_ok"
 
 rm -rf "$WEB_ROOT"
