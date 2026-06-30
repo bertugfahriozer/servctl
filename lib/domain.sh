@@ -155,6 +155,41 @@ _domain_add_validate_gate() {
     validate_domain "$1"
 }
 
+# Per-domain .credentials dosyasını güvenli yaz (umask 077 + 0600 root:root).
+# Saf yardımcı: mysql/redis/nginx gerektirmez — macOS'ta unit-test edilebilir.
+# Argümanlar: domain base web_user php_ver db_name db_user db_pass redis_user redis_pass redis_prefix
+_domain_write_credentials() {
+    local domain="$1" base="$2" web_user="$3" php_version="$4"
+    local db_name="$5" db_user="$6" db_pass="$7"
+    local redis_user="$8" redis_pass="$9" redis_prefix="${10}"
+    local creds_file="${base}/.credentials"
+
+    # Sır yazımı boyunca dünya/grup erişimini kapat
+    (
+        umask 077
+        cat > "$creds_file" << CREDS
+# ═══════════════════════════════════════════════
+#  srvctl credentials — ${domain}
+#  Oluşturulma: $(date '+%Y-%m-%d %H:%M:%S')
+#  DİKKAT: Bu dosyayı güvenli bir yere yedekleyin!
+# ═══════════════════════════════════════════════
+DOMAIN=${domain}
+SAFE_NAME=$(safe_name "$domain")
+WEB_USER=${web_user}
+PHP_VERSION=${php_version}
+DB_NAME=${db_name}
+DB_USER=${db_user}
+DB_PASS=${db_pass}
+REDIS_USER=${redis_user}
+REDIS_PASS=${redis_pass}
+REDIS_PREFIX=${redis_prefix}
+CREDS
+    )
+    # Mod/sahiplik invariantını kesinleştir (chown macOS'ta sessizce geçer)
+    chmod 600 "$creds_file"
+    chown root:root "$creds_file" 2>/dev/null || true
+}
+
 # ═══════════════════════════════════════════════
 #  DOMAIN ADD — 10 adımda tam güvenlikli domain
 # ═══════════════════════════════════════════════
@@ -418,26 +453,10 @@ _domain_add() {
     _apply_seccomp_hardening "${php_version}"
     success "cgroups slice + seccomp uygulandı"
 
-    # ─── Credentials Dosyası ───
-    cat > "${base}/.credentials" << CREDS
-# ═══════════════════════════════════════════════
-#  srvctl credentials — ${domain}
-#  Oluşturulma: $(date '+%Y-%m-%d %H:%M:%S')
-#  DİKKAT: Bu dosyayı güvenli bir yere yedekleyin!
-# ═══════════════════════════════════════════════
-DOMAIN=${domain}
-SAFE_NAME=${sname}
-WEB_USER=${web_user}
-PHP_VERSION=${php_version}
-DB_NAME=${db_name}
-DB_USER=${db_user}
-DB_PASS=${db_pass}
-REDIS_USER=${redis_user}
-REDIS_PASS=${redis_pass}
-REDIS_PREFIX=${sname}:
-CREDS
-    chmod 600 "${base}/.credentials"
-    chown root:root "${base}/.credentials"
+    # ─── Credentials Dosyası (umask 077 + 0600 root:root) ───
+    _domain_write_credentials "$domain" "$base" "$web_user" "$php_version" \
+        "$db_name" "$db_user" "$db_pass" \
+        "$redis_user" "$redis_pass" "${sname}:"
 
     # ─── Hoşgeldin sayfası ───
     cat > "${base}/public_html/index.php" << 'INDEXPHP'

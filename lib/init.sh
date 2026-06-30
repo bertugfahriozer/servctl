@@ -402,13 +402,16 @@ MARIADB
     mysql -u root -p"${root_pass}" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
     mysql -u root -p"${root_pass}" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
 
-    # Root credentials dosyası
-    cat > /root/.my.cnf << MYCNF
+    # Root credentials dosyası (umask 077 + 0600 root:root)
+    (
+        umask 077
+        cat > /root/.my.cnf << MYCNF
 [client]
 user=root
 password=${root_pass}
 MYCNF
-    chmod 600 /root/.my.cnf
+    )
+    secure_file /root/.my.cnf 600
 
     info "MariaDB root şifresi: /root/.my.cnf"
 }
@@ -457,8 +460,10 @@ loglevel notice
 logfile /var/log/redis/redis-server.log
 REDISCONF
 
-    # ACL dosyası
-    cat > /etc/redis/users.acl << REDISACL
+    # ACL dosyası (umask 077 — parola world-readable olmasın)
+    (
+        umask 077
+        cat > /etc/redis/users.acl << REDISACL
 # srvctl Redis ACL
 # Admin kullanıcısı — sadece sunucu yönetimi
 user admin on >${redis_admin_pass} ~* &* +@all
@@ -466,8 +471,10 @@ user admin on >${redis_admin_pass} ~* &* +@all
 # Default kullanıcıyı devre dışı bırak
 user default off nopass ~* &* -@all
 REDISACL
-
-    chmod 640 /etc/redis/redis.conf /etc/redis/users.acl
+    )
+    # redis.conf sır içermez (0640); users.acl parola taşır (0600), sahibi redis daemon
+    chmod 640 /etc/redis/redis.conf
+    chmod 600 /etc/redis/users.acl
     chown redis:redis /etc/redis/redis.conf /etc/redis/users.acl
 
     systemctl enable redis-server > /dev/null 2>&1
