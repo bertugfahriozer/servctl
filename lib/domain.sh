@@ -43,6 +43,32 @@ cmd_domain() {
     esac
 }
 
+# Bir domain için HEDEF dosya-sahiplik/izin modelini (uygulamadan) yazar.
+# Çıktı: "<path>|<owner>|<mode>" satırları. Saf fonksiyon — chown/chmod YOK.
+# harden-fs dry-run (Task 4) ve unit-testler bunu kullanır.
+_domain_fs_plan() {
+    local base="$1" web_user="$2"
+    local rows=(
+        ".|root|751"
+        "dev|root|755" "etc|root|755" "lib|root|755" "lib64|root|755" "usr|root|755"
+        ".credentials|root|600" ".srvctl-meta|root|644" ".deploy-repo|root|600"
+        "public_html|${web_user}|750"
+        "private|${web_user}|750"
+        "private/writable|${web_user}|770"
+        "logs|${web_user}|750"
+        "tmp|${web_user}|770"
+        "sessions|${web_user}|770"
+        "releases|${web_user}|750"
+        "shared|${web_user}|750"
+    )
+    local row rel owner mode path
+    for row in "${rows[@]}"; do
+        IFS='|' read -r rel owner mode <<< "$row"
+        [[ "$rel" == "." ]] && path="$base" || path="${base}/${rel}"
+        printf '%s|%s|%s\n' "$path" "$owner" "$mode"
+    done
+}
+
 # vhost config'i seçili profil + meta ile üret ve yaz.
 # mode: "http" → vhost.conf.tpl, "ssl" → vhost-ssl.conf.tpl
 # SITES_AVAILABLE env'i test için override edilebilir (varsayılan /etc/nginx/sites-available).
