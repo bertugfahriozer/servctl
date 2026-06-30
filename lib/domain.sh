@@ -530,6 +530,40 @@ _domain_remove() {
     log_action "DOMAIN REMOVE: ${domain}"
 }
 
+# ───────────────────────────────────────────────────────────────
+#  Tek domain dizini için liste satırı üret (saf, parse-not-source)
+#  Çıktı: domain|php|user|ssl|chroot
+# ───────────────────────────────────────────────────────────────
+_domain_row() {
+    local dir="$1"
+    local domain sname php_ver user ssl chroot
+    domain=$(basename "$dir")
+    sname=$(safe_name "$domain")
+    php_ver="${DEFAULT_PHP_VERSION}"
+    user="web_${sname}"
+    ssl="❌"
+    chroot="❌"
+
+    # Credentials'tan PHP/USER bilgisini parse et (source DEĞİL); her satırda sıfırla
+    if [[ -f "${dir}.credentials" ]]; then
+        local PHP_VERSION="" WEB_USER=""
+        read_kv_file "${dir}.credentials" PHP_VERSION WEB_USER
+        # Kimlik: dosyaya güvenme — safe_name'den türet, PHP'yi doğrula
+        [[ -n "$PHP_VERSION" ]] && assert_php_version "$PHP_VERSION" && php_ver="$PHP_VERSION"
+        user="web_${sname}"
+    fi
+
+    # SSL kontrolü
+    [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]] && ssl="✅"
+
+    # Chroot kontrolü
+    if [[ -f "/etc/php/${php_ver}/fpm/pool.d/${sname}.conf" ]]; then
+        grep -q "chroot" "/etc/php/${php_ver}/fpm/pool.d/${sname}.conf" 2>/dev/null && chroot="✅"
+    fi
+
+    printf '%s|%s|%s|%s|%s\n' "$domain" "$php_ver" "$user" "$ssl" "$chroot"
+}
+
 # ═══════════════════════════════════════════════
 #  DOMAIN LIST
 # ═══════════════════════════════════════════════
@@ -543,31 +577,9 @@ _domain_list() {
     local count=0
     for dir in "${WEB_ROOT}"/*/; do
         [[ ! -d "$dir" ]] && continue
-        local domain
-        domain=$(basename "$dir")
-        local sname
-        sname=$(safe_name "$domain")
-        local php_ver="${DEFAULT_PHP_VERSION}"
-        local user="web_${sname}"
-        local ssl="❌"
-        local chroot="❌"
-
-        # Credentials'dan bilgi oku
-        if [[ -f "${dir}.credentials" ]]; then
-            # shellcheck disable=SC1090
-            source "${dir}.credentials"
-            php_ver="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
-            user="${WEB_USER:-web_${sname}}"
-        fi
-
-        # SSL kontrolü
-        [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]] && ssl="✅"
-
-        # Chroot kontrolü
-        if [[ -f "/etc/php/${php_ver}/fpm/pool.d/${sname}.conf" ]]; then
-            grep -q "chroot" "/etc/php/${php_ver}/fpm/pool.d/${sname}.conf" 2>/dev/null && chroot="✅"
-        fi
-
+        local row domain php_ver user ssl chroot
+        row=$(_domain_row "$dir")
+        IFS='|' read -r domain php_ver user ssl chroot <<< "$row"
         printf "  %-30s %-8s %-15s %-6s %-8s\n" "$domain" "$php_ver" "$user" "$ssl" "$chroot"
         count=$((count + 1))
     done

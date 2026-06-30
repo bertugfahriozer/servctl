@@ -141,17 +141,18 @@ _security_audit() {
 
     for dir in "${WEB_ROOT}"/*/; do
         [[ ! -d "$dir" ]] && continue
-        local domain
+        local domain sname php_ver PHP_VERSION
         domain=$(basename "$dir")
-        local sname
         sname=$(safe_name "$domain")
-        local php_ver="${DEFAULT_PHP_VERSION}"
+        php_ver="${DEFAULT_PHP_VERSION}"
 
-        # Credentials'dan PHP versiyon bilgisini oku
+        # Credentials'tan PHP versiyon bilgisini parse et (source DEĞİL); her döngüde sıfırla
         if [[ -f "${dir}.credentials" ]]; then
-            # shellcheck disable=SC1090
-            source "${dir}.credentials"
-            php_ver="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+            PHP_VERSION=""
+            read_kv_file "${dir}.credentials" PHP_VERSION
+            if [[ -n "$PHP_VERSION" ]] && assert_php_version "$PHP_VERSION"; then
+                php_ver="$PHP_VERSION"
+            fi
         fi
 
         # Chroot kontrol
