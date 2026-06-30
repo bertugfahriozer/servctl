@@ -94,6 +94,15 @@ _cf_setup() {
     fi
 }
 
+# DNS kayıt gövdesini güvenli kur: string alanlar jq -n --arg ile kaçışlanır,
+# proxied boolean --argjson ile ham JSON olarak yerleşir. String enterpolasyonu YOK.
+_cf_dns_add_body() {
+    local type="$1" name="$2" content="$3" proxied="$4"
+    jq -n --arg type "$type" --arg name "$name" --arg content "$content" \
+        --argjson proxied "$proxied" \
+        '{type: $type, name: $name, content: $content, proxied: $proxied}'
+}
+
 _cf_dns() {
     case "${1:-}" in
         list)
@@ -129,7 +138,7 @@ _cf_dns() {
 
             local result
             result=$(_cf_api POST "/zones/${zone_id}/dns_records" \
-                "{\"type\":\"${type}\",\"name\":\"${name}\",\"content\":\"${content}\",\"proxied\":${proxied}}")
+                "$(_cf_dns_add_body "$type" "$name" "$content" "$proxied")")
 
             local success_status
             success_status=$(echo "$result" | jq -r '.success' 2>/dev/null)
