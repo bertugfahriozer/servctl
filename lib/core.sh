@@ -336,6 +336,12 @@ render_template() {
     for pair in "$@"; do
         local key="${pair%%=*}"
         local value="${pair#*=}"
+        # CRLF/config-enjeksiyon koruması: değer satırsonu/CR içeremez.
+        # (render-time değişmezi — bu error EXIT eder; charset doğrulaması
+        #  çağıran tarafta assert_regex_safe ile yapılır.)
+        if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+            error "render_template: '${key}' değeri satırsonu/CR içeriyor — reddedildi"
+        fi
         content="${content//\{\{${key}\}\}/${value}}"
     done
 
