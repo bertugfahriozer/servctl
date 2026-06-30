@@ -141,6 +141,12 @@ _domain_add_wizard() {
     _domain_add "${args[@]}"
 }
 
+# CLI yolu için domain doğrulama kapısı (test edilebilir ince sarmalayıcı).
+# validate_domain predikatını birebir uygular; geçersizse 1 döner.
+_domain_add_validate_gate() {
+    validate_domain "$1"
+}
+
 # ═══════════════════════════════════════════════
 #  DOMAIN ADD — 10 adımda tam güvenlikli domain
 # ═══════════════════════════════════════════════
@@ -172,6 +178,7 @@ _domain_add() {
     done
 
     [[ -z "$domain" ]] && error "Domain belirtilmedi. Kullanım: srvctl domain add example.com [--php=8.3] [--rate=standard]"
+    _domain_add_validate_gate "$domain" || error "Geçersiz domain adı: ${domain}"
     domain_exists "$domain" && error "Domain zaten mevcut: ${domain}"
     php_version_exists "$php_version" || error "PHP ${php_version} kurulu değil. Önce kurun."
     rate_profile="$(rate_profile_resolve "$rate_profile")"
