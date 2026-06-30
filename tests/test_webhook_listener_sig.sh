@@ -43,9 +43,9 @@ assert_contains "$BODY" '_webhook_verify_sig "${WEBHOOK_SECRET' \
 assert_not_contains "$BODY" 'if [[ -n "$hub_sig" && -n "${WEBHOOK_SECRET}" ]]' \
     "eski fail-open koşulu (header boşsa atla) kalmamalı"
 
-# socat 127.0.0.1'e bağlanmalı (statik assert: bind= seçeneği zorunlu)
-assert_contains "$BODY" 'bind=${WEBHOOK_BIND}' \
-    "listener socat 127.0.0.1'e bağlanmalı (bind=\${WEBHOOK_BIND})"
+# socat 127.0.0.1'e bağlanmalı (statik assert: bind= seçeneği zorunlu, T5.3 ile literal)
+assert_contains "$BODY" 'bind=127.0.0.1' \
+    "listener socat 127.0.0.1'e bağlanmalı (bind=127.0.0.1)"
 
 echo "── handle_request: header eksikse 403 dönmeli (dinamik) ──"
 # handle_request'i ve bağımlılıklarını izole ortamda test et.

@@ -74,10 +74,15 @@ _webhook_setup() {
     sname=$(safe_name "$domain")
     local secret
     secret=$(generate_password 32)
+    # Fail-closed: boş secret ile webhook yapılandırma (imza doğrulama anlamsız olur)
+    [[ -z "$secret" ]] && error "Webhook secret üretilemedi."
 
-    # Webhook config dosyası
+    # Webhook config dosyası (umask 077 ile dünya-okunur sızıntısı önlenir)
     mkdir -p /etc/srvctl/webhooks
-    cat > "/etc/srvctl/webhooks/${sname}.conf" << WHCONF
+    chmod 700 /etc/srvctl/webhooks
+    local conf="/etc/srvctl/webhooks/${sname}.conf"
+    ( umask 077; : > "$conf" )
+    cat > "$conf" << WHCONF
 WEBHOOK_DOMAIN=${domain}
 WEBHOOK_SECRET=${secret}
 WEBHOOK_BRANCH=main
@@ -85,16 +90,17 @@ WEBHOOK_AUTO_DEPLOY=true
 WEBHOOK_HEALTH_CHECK=true
 WEBHOOK_NOTIFY=true
 WHCONF
-    chmod 600 "/etc/srvctl/webhooks/${sname}.conf"
+    chmod 600 "$conf"
 
     header "Webhook Yapılandırıldı: ${domain}"
-    echo "  URL:      https://SUNUCU_IP:${WEBHOOK_PORT}/deploy/${sname}"
+    echo "  Dahili:   http://127.0.0.1:${WEBHOOK_PORT}/deploy/${sname}"
+    echo "  Genel:    https://${domain}/__srvctl_webhook/${sname}  (nginx reverse-proxy ile)"
     echo "  Secret:   ${secret}"
     echo "  Branch:   main"
     echo ""
     echo "  GitHub'da:"
     echo "    Settings → Webhooks → Add webhook"
-    echo "    Payload URL:  https://SUNUCU_IP:${WEBHOOK_PORT}/deploy/${sname}"
+    echo "    Payload URL:  https://${domain}/__srvctl_webhook/${sname}"
     echo "    Content type: application/json"
     echo "    Secret:       ${secret}"
     echo "    Events:       Just the push event"
@@ -255,8 +261,8 @@ handle_request() {
     fi
 }
 
-# Ana döngü — yalnızca localhost'a bağlan (güvenlik: dışa açılma)
-socat TCP4-LISTEN:${WEBHOOK_PORT},bind=${WEBHOOK_BIND},reuseaddr,fork SYSTEM:"/usr/local/srvctl/lib/webhook-listener.sh handle"
+# Yalnızca localhost'a bind — nginx reverse-proxy önde; port dışa açılmaz.
+socat TCP-LISTEN:${WEBHOOK_PORT},bind=127.0.0.1,reuseaddr,fork SYSTEM:"/usr/local/srvctl/lib/webhook-listener.sh handle"
 
 # Handle mode
 if [[ "${1:-}" == "handle" ]]; then
@@ -265,8 +271,8 @@ fi
 LISTENER
     chmod +x /usr/local/srvctl/lib/webhook-listener.sh
 
-    # UFW'de port aç
-    ufw allow "${WEBHOOK_PORT}/tcp" comment "srvctl-webhook" > /dev/null 2>&1
+    # Port yalnızca 127.0.0.1'e bind; dışa UFW kuralı AÇILMAZ.
+    # Dışarıdan erişim nginx reverse-proxy (TLS) üzerinden olmalı.
 
     # Başlat
     systemctl daemon-reload
