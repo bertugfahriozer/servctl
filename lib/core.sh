@@ -77,6 +77,90 @@ _stat_mode() {
     stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
+# ─── Girdi Doğrulayıcıları (PREDIKAT: 0=geçerli 1=geçersiz; çıktı YOK, exit YOK) ───
+# Çağıran taraf karar verir:  validate_x "$v" || error "..."
+
+# Domain adı: harf/rakam ile başlar-biter, içeride .-, '..'/'/'/baştaki nokta yok, ≤253
+validate_domain() {
+    local name="$1"
+    [[ -n "$name" ]] || return 1
+    (( ${#name} <= 253 )) || return 1
+    [[ "$name" == *".."* ]] && return 1
+    [[ "$name" == *"/"* ]] && return 1
+    [[ "$name" == "."* ]] && return 1
+    [[ "$name" == *"."* ]] && [[ "$name" == *".-"* ]] && return 1
+    [[ "$name" == *"-."* ]] && return 1
+    [[ "$name" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]
+}
+
+# Güvenli tanımlayıcı (DB adı/kullanıcı): yalnız harf/rakam/alt-çizgi
+assert_safe_ident() {
+    [[ "$1" =~ ^[a-zA-Z0-9_]+$ ]]
+}
+
+# PHP versiyonu: N.N
+assert_php_version() {
+    [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]
+}
+
+# nginx regex token: yalnız [A-Za-z0-9_./|-]; {,},;,boşluk,newline yasak
+assert_regex_safe() {
+    local v="$1"
+    [[ -n "$v" ]] || return 1
+    [[ "$v" == *"{"* || "$v" == *"}"* || "$v" == *";"* ]] && return 1
+    [[ "$v" =~ [[:space:]] ]] && return 1
+    [[ "$v" =~ ^[A-Za-z0-9_./\|-]+$ ]]
+}
+
+# Linux kullanıcı adı: [a-z_] ile başlar, [a-z0-9_-], ≤32
+validate_username() {
+    local v="$1"
+    (( ${#v} <= 32 )) || return 1
+    [[ "$v" =~ ^[a-z_][a-z0-9_-]*$ ]]
+}
+
+# IPv4/IPv6/CIDR
+validate_ip_or_cidr() {
+    local v="$1" addr="$1" prefix="" max=""
+    [[ -n "$v" ]] || return 1
+    if [[ "$v" == */* ]]; then
+        addr="${v%/*}"; prefix="${v#*/}"
+        [[ "$prefix" =~ ^[0-9]+$ ]] || return 1
+    fi
+    # IPv4?
+    if [[ "$addr" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+        local o
+        for o in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"; do
+            (( o <= 255 )) || return 1
+        done
+        max=32
+    # IPv6? (kabaca: hex grupları ve :: kısaltması)
+    elif [[ "$addr" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ || "$addr" =~ ^::1$ || "$addr" =~ ^([0-9a-fA-F]{0,4}:)+:?([0-9a-fA-F]{0,4})$ ]]; then
+        max=128
+    else
+        return 1
+    fi
+    if [[ -n "$prefix" ]]; then
+        (( prefix <= max )) || return 1
+    fi
+    return 0
+}
+
+# İşaretsiz tamsayı; opsiyonel üst sınır
+validate_uint() {
+    local v="$1" max="${2:-}"
+    [[ "$v" =~ ^[0-9]+$ ]] || return 1
+    if [[ -n "$max" ]]; then
+        (( v <= max )) || return 1
+    fi
+    return 0
+}
+
+# Ülke kodu: 2 büyük harf
+validate_country() {
+    [[ "$1" =~ ^[A-Z]{2}$ ]]
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
