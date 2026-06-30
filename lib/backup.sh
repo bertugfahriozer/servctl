@@ -108,7 +108,8 @@ _backup_run() {
     local redis_admin_pass
     redis_admin_pass=$(grep "^REDIS_ADMIN_PASS=" "${SRVCTL_CONF}" 2>/dev/null | cut -d= -f2)
     if [[ -n "$redis_admin_pass" ]]; then
-        REDISCLI_AUTH="$redis_admin_pass" redis-cli --user admin BGSAVE 2>/dev/null || true
+        # Parolayı argv'den uzak tut: REDISCLI_AUTH env (ps'te görünmez).
+        REDISCLI_AUTH="$redis_admin_pass" redis-cli --user admin --no-auth-warning BGSAVE 2>/dev/null || true
         sleep 2
     fi
     cp /var/lib/redis/dump.rdb "${backup_path}/redis.rdb" 2>/dev/null || true

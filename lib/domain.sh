@@ -402,13 +402,15 @@ _domain_add() {
     current=$((current + 1))
     step "${current}/${total}" "Veritabanı oluşturuluyor..."
 
-    mysql -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    mysql -e "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';"
-    mysql -e "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,CREATE TEMPORARY TABLES,LOCK TABLES,REFERENCES,TRIGGER ON \`${db_name}\`.* TO '${db_user}'@'localhost';"
-    # FILE yetkisini kaldır (dosya sistemi okuma/yazma engellemek için)
-    mysql -e "REVOKE ALL PRIVILEGES ON *.* FROM '${db_user}'@'localhost';" 2>/dev/null || true
-    mysql -e "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,CREATE TEMPORARY TABLES,LOCK TABLES,REFERENCES,TRIGGER ON \`${db_name}\`.* TO '${db_user}'@'localhost';"
-    mysql -e "FLUSH PRIVILEGES;"
+    # Parolayı argv'den uzak tut: SQL stdin heredoc ile beslenir (ps/cmdline'da sır görünmez).
+    # Root kimliği /root/.my.cnf'ten gelir (0600 root:root).
+    mysql << SQL
+CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
+REVOKE ALL PRIVILEGES ON *.* FROM '${db_user}'@'localhost';
+GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,CREATE TEMPORARY TABLES,LOCK TABLES,REFERENCES,TRIGGER ON \`${db_name}\`.* TO '${db_user}'@'localhost';
+FLUSH PRIVILEGES;
+SQL
 
     success "DB: ${db_name} / User: ${db_user}"
 
@@ -427,7 +429,8 @@ _domain_add() {
     local redis_admin_pass
     redis_admin_pass=$(grep "^REDIS_ADMIN_PASS=" "${SRVCTL_CONF}" 2>/dev/null | cut -d= -f2)
     if [[ -n "$redis_admin_pass" ]]; then
-        redis-cli --user admin --pass "$redis_admin_pass" ACL LOAD 2>/dev/null || \
+        # Parolayı argv'den uzak tut: REDISCLI_AUTH env redis-cli tarafından okunur (ps'te görünmez).
+        REDISCLI_AUTH="$redis_admin_pass" redis-cli --user admin --no-auth-warning ACL LOAD 2>/dev/null || \
             systemctl restart redis-server
     else
         systemctl restart redis-server
