@@ -148,6 +148,8 @@ SERVICE
 
 SRVCTL_ROOT="/usr/local/srvctl"
 WEBHOOK_PORT="${WEBHOOK_PORT:-9443}"
+# Listener yalnızca 127.0.0.1'e bağlanır (nginx arkasında); 9443 dışa açılmaz.
+WEBHOOK_BIND="${WEBHOOK_BIND:-127.0.0.1}"
 
 source "${SRVCTL_ROOT}/conf/srvctl.conf"
 source "${SRVCTL_ROOT}/lib/core.sh"
@@ -253,8 +255,8 @@ handle_request() {
     fi
 }
 
-# Ana döngü
-socat TCP-LISTEN:${WEBHOOK_PORT},reuseaddr,fork SYSTEM:"/usr/local/srvctl/lib/webhook-listener.sh handle"
+# Ana döngü — yalnızca localhost'a bağlan (güvenlik: dışa açılma)
+socat TCP4-LISTEN:${WEBHOOK_PORT},bind=${WEBHOOK_BIND},reuseaddr,fork SYSTEM:"/usr/local/srvctl/lib/webhook-listener.sh handle"
 
 # Handle mode
 if [[ "${1:-}" == "handle" ]]; then
