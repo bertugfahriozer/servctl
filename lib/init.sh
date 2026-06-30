@@ -160,7 +160,9 @@ SSHCONF
     success "Gelişmiş güvenlik katmanları kuruldu"
 
     # ─── Dizinler ───
-    mkdir -p "${WEB_ROOT}" "${BACKUP_DIR}" "${SRVCTL_ROOT}/logs"
+    mkdir -p "${WEB_ROOT}" "${SRVCTL_ROOT}/logs"
+    # Yedek dizini sır içerir → 0700 root:root
+    secure_dir "${BACKUP_DIR}" 700
 
     # ─── Otomatik güvenlik güncellemeleri ───
     dpkg-reconfigure -plow unattended-upgrades 2>/dev/null || true

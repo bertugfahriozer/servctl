@@ -21,13 +21,27 @@ cmd_backup() {
     esac
 }
 
+# Yedek kök + per-run dizinini güvenli oluştur (0700 root:root).
+# Saf yardımcı: mysql/nginx gerektirmez.
+_backup_prepare_dir() {
+    local run_dir="$1"
+    secure_dir "$BACKUP_DIR" 700
+    secure_dir "$run_dir" 700
+}
+
+# Tek bir yedek artefaktını 0600 root:root kilitle.
+_backup_secure_artifact() {
+    secure_file "$1" 600
+}
+
 _backup_run() {
     local target_domain="$1"
     local today
     today=$(date +%Y%m%d_%H%M%S)
     local backup_path="${BACKUP_DIR}/${today}"
 
-    mkdir -p "${backup_path}"
+    # Yedek kökü + per-run dizini 0700 root:root
+    _backup_prepare_dir "${backup_path}"
 
     header "Yedekleme: ${today}"
 
@@ -46,6 +60,7 @@ _backup_run() {
 
         mysqldump --single-transaction --quick --lock-tables=false \
             "$db" 2>/dev/null | gzip > "${backup_path}/${db}.sql.gz"
+        _backup_secure_artifact "${backup_path}/${db}.sql.gz"
         db_count=$((db_count + 1))
     done < <(mysql -N -e "SHOW DATABASES" 2>/dev/null | \
         grep -vE "^(information_schema|performance_schema|mysql|sys)$")
@@ -73,6 +88,7 @@ _backup_run() {
             --exclude='sessions/*' \
             --exclude='tmp/*' \
             "${dir}" 2>/dev/null || warn "Dosya yedeklemesinde hata: ${domain}"
+        _backup_secure_artifact "${backup_path}/${domain}-files.tar.gz"
 
         file_count=$((file_count + 1))
     done
@@ -88,6 +104,7 @@ _backup_run() {
         sleep 2
     fi
     cp /var/lib/redis/dump.rdb "${backup_path}/redis.rdb" 2>/dev/null || true
+    _backup_secure_artifact "${backup_path}/redis.rdb"
     success "Redis yedeklendi"
 
     # ─── Config yedek ───
@@ -101,6 +118,7 @@ _backup_run() {
         /etc/fail2ban/jail.local \
         /usr/local/srvctl/conf/ \
         2>/dev/null || true
+    _backup_secure_artifact "${backup_path}/configs.tar.gz"
     success "Konfigürasyonlar yedeklendi"
 
     # ─── Toplam boyut ───
