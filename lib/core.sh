@@ -161,6 +161,24 @@ validate_country() {
     [[ "$1" =~ ^[A-Z]{2}$ ]]
 }
 
+# ─── Katı key=value okuyucu (ASLA source/eval) ───
+# Kullanım: read_kv_file <dosya> KEY1 KEY2 ...
+# Her KEY için: ^KEY= ile eşleşen İLK satırı bul, ilk '='ten sonrasını
+# (ham, tırnak çözmeden) global KEY değişkenine ata. Eksik anahtar → değişkene
+# dokunma. Her durumda 0 döner. Komut-subst/eval ASLA tetiklenmez.
+read_kv_file() {
+    local file="$1"; shift
+    [[ -f "$file" ]] || return 0
+    local k line
+    for k in "$@"; do
+        line="$(grep -E "^${k}=" "$file" 2>/dev/null | head -1)" || true
+        [[ -n "$line" ]] || continue
+        # İlk '='ten sonrasını ata — komut-substitution YOK (printf -v atama)
+        printf -v "$k" '%s' "${line#*=}"
+    done
+    return 0
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
