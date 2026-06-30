@@ -42,6 +42,11 @@ cmd_user() {
     esac
 }
 
+# Test edilebilir kullanıcı adı doğrulama kapısı (predicate; error/exit YOK).
+_user_add_validate_gate() {
+    validate_username "$1"
+}
+
 _user_add() {
     local username=""
     local role="developer"
@@ -54,6 +59,7 @@ _user_add() {
     done
 
     [[ -z "$username" ]] && error "Kullanıcı adı belirtilmedi."
+    _user_add_validate_gate "$username" || error "Geçersiz kullanıcı adı: ${username} (^[a-z_][a-z0-9_-]*$, en fazla 32)"
     [[ "$role" =~ ^(admin|developer|viewer)$ ]] || error "Geçersiz rol: ${role}. (admin|developer|viewer)"
 
     mkdir -p "${SRVCTL_USERS_DIR}"
