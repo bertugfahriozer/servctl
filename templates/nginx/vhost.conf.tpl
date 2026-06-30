@@ -58,7 +58,7 @@ server {
         try_files $uri =404;
 
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_pass unix:/run/php/php-fpm{{PHP_VERSION}}-{{SAFE_NAME}}.sock;
+        fastcgi_pass unix:/run/php/php{{PHP_VERSION}}-fpm-{{SAFE_NAME}}.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;

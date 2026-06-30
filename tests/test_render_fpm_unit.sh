@@ -15,7 +15,7 @@ conf="$(cat "${SRVCTL_FPM_DIR}/example_com.conf")"
 assert_contains "$conf" "[global]"                       "config global bölümü"
 assert_contains "$conf" "[example_com]"                  "config pool bölümü (pool.conf.tpl)"
 assert_contains "$conf" "user = web_example_com"         "pool user web_user"
-assert_contains "$conf" "php-fpm8.3-example_com.sock"    "socket yolu (değişmez)"
+assert_contains "$conf" "php8.3-fpm-example_com.sock"    "socket yolu (değişmez)"
 assert_not_contains "$conf" "{{"                         "config leftover token yok"
 
 unit="$(cat "${SRVCTL_SYSTEMD_DIR}/srvctl-fpm-example_com.service")"

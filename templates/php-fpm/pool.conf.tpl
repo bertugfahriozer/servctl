@@ -7,7 +7,7 @@
 ; ─── Kullanıcı İzolasyonu ───
 user = {{WEB_USER}}
 group = {{WEB_USER}}
-listen = /run/php/php-fpm{{PHP_VERSION}}-{{SAFE_NAME}}.sock
+listen = /run/php/php{{PHP_VERSION}}-fpm-{{SAFE_NAME}}.sock
 listen.owner = www-data
 listen.group = www-data
 listen.mode = 0660
