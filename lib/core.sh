@@ -226,6 +226,27 @@ assert_root_owned_path() {
     done
 }
 
+# ─── Per-domain "hardened" durum dizini (root-only) ───
+SRVCTL_STATE_DIR="${SRVCTL_STATE_DIR:-${SRVCTL_ROOT}/state}"
+
+# Domain T1 modeline geçmiş mi? (marker root-only state dosyası)
+_domain_is_hardened() {
+    [[ -f "${SRVCTL_STATE_DIR}/${1}/hardened" ]]
+}
+
+# Sahiplik politikası (PREDIKAT: 0=devam, 1=tamper → çağıran error eder).
+# root-owned değilse: hardened domain → tamper (1); migrate edilmemiş → warn + 0.
+# UYARI STDERR'e gider (yoksa stdout→config çıktılarını kirletir).
+_require_owned_or_warn() {
+    local domain="$1" file="$2"
+    assert_root_owned_path "$file" && return 0
+    if _domain_is_hardened "$domain"; then
+        return 1
+    fi
+    warn "Domain '${domain}' henüz hardened değil — 'srvctl security harden-fs ${domain}' önerilir" >&2
+    return 0
+}
+
 # ─── Güvenli FS oluşturma (umask 077 altında) ───
 # chown macOS dev kutusunda başarısız olabilir → guard'lı; mod/varlık test edilir.
 secure_file() {
