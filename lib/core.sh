@@ -171,7 +171,7 @@ read_kv_file() {
     [[ -f "$file" ]] || return 0
     local k line
     for k in "$@"; do
-        line="$(grep -E "^${k}=" "$file" 2>/dev/null | head -1)" || true
+        line="$(grep -F "${k}=" "$file" 2>/dev/null | head -1)" || true
         [[ -n "$line" ]] || continue
         # İlk '='ten sonrasını ata — komut-substitution YOK (printf -v atama)
         printf -v "$k" '%s' "${line#*=}"

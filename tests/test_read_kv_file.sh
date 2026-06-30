@@ -50,5 +50,34 @@ assert_eq "$(test -e "${WEB_ROOT}/pwned2" && echo VAR || echo YOK)" "YOK" "backt
 assert_eq "${DOMAIN:-}" "safe.com" "evil dosyadan DOMAIN ham okundu"
 assert_contains "${EVIL:-}" 'touch' "EVIL ham metin (çalışmadı)"
 
+# ── KRİTİK: regex metacharacter'lar anahtar olarak (grep -F için test) ───
+# grep -E kullanılırsa, anahtar içindeki nokta "." (regex'de any char)
+# yanlış satırları eşleştirebilir. grep -F tam dize araması yaparak bunu önler.
+kvf_meta="${WEB_ROOT}/meta.kv"
+cat > "$kvf_meta" <<EOF
+DB_PASS=correct_value
+DB_PASS_alt=wrong_value_should_not_match
+DBXPASS=wrong_value_no_underscore
+EOF
+
+unset DB_PASS
+read_kv_file "$kvf_meta" DB_PASS
+assert_eq "${DB_PASS:-}" "correct_value" "DB_PASS tam dize araması ile doğru okundu"
+
+# Parantez içeren anahtar [+ _ * gibi metacharacter'lar
+# (teorik: bash değişken adında olmaz ama read_kv_file'nin grep'i test etmek için)
+# Örnek: dosyada "FOO_BRACKETS=value" varsa ve çağrı "FOO[BRACKETS]" ise
+# grep -E "[" regex syntax hatasına sebep olur
+kvf_bracket="${WEB_ROOT}/bracket.kv"
+cat > "$kvf_bracket" <<EOF
+SIMPLE_KEY=value1
+STAR_KEY=value2
+PLUS_KEY=value3
+EOF
+
+unset SIMPLE_KEY
+read_kv_file "$kvf_bracket" SIMPLE_KEY
+assert_eq "${SIMPLE_KEY:-}" "value1" "SIMPLE_KEY okundu"
+
 rm -rf "$WEB_ROOT"
 test_summary
