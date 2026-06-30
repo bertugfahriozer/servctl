@@ -1,292 +1,241 @@
 # srvctl — CLI-Only Ultra-Güvenli Sunucu Yönetimi
 
-> Sıfır GUI · Sıfır Docker · Sıfır Panel · 12 Güvenlik Katmanı  
+> Sıfır GUI · Sıfır Docker · Sıfır Panel · Çok Katmanlı Güvenlik
 > Ubuntu 22.04 LTS · PHP-FPM · Nginx · MariaDB · Redis
 
 ---
 
 ## Nedir?
 
-`srvctl` tamamen CLI tabanlı, güvenlik odaklı bir sunucu yönetim aracıdır. Her domain eklendiğinde otomatik olarak **12 güvenlik katmanı** uygulanır:
+`srvctl` tamamen CLI tabanlı, güvenlik odaklı bir sunucu yönetim aracıdır. Her domain eklendiğinde güvenlik katmanları otomatik uygulanır; sunucu kurulumunda ise OS sertleştirme ve WAF dahil gelişmiş katmanlar devreye girer.
+
+### Çekirdek güvenlik katmanları (her domain)
 
 | # | Katman | Açıklama |
 |---|--------|----------|
-| 1 | **Linux kullanıcı izolasyonu** | Her domain ayrı sistem kullanıcısı (`web_domain`) |
-| 2 | **Dizin izinleri + ACL** | `750` + `setfacl` ile sıkı erişim kontrolü |
-| 3 | **chroot jail** | PHP process domain dizininin dışına çıkamaz |
-| 4 | **PHP-FPM pool izolasyonu** | Her domain ayrı FPM pool, ayrı socket |
-| 5 | **AppArmor profili** | Kernel seviyesinde erişim kısıtlaması (enforce) |
-| 6 | **open_basedir** | PHP'nin erişebildiği dizinleri kısıtlar |
-| 7 | **disable_functions** | `exec`, `system`, `shell_exec` vb. devre dışı |
-| 8 | **MariaDB GRANT izolasyonu** | Her domain sadece kendi DB'sine erişir |
-| 9 | **Redis ACL** | Her domain sadece kendi key prefix'ine erişir |
-| 10 | **Nginx güvenlik header'ları** | HSTS, CSP, X-Frame-Options, rate limiting |
-| 11 | **Fail2Ban** | Brute-force saldırılarını otomatik engeller |
-| 12 | **auditd** | Tüm dosya değişikliklerini loglar |
+| 1 | Linux kullanıcı izolasyonu | Her domain ayrı sistem kullanıcısı (`web_domain`) |
+| 2 | Dizin izinleri + ACL | `750` + `setfacl` ile sıkı erişim |
+| 3 | chroot jail | PHP process domain dizininin dışına çıkamaz |
+| 4 | PHP-FPM pool izolasyonu | Ayrı FPM pool, ayrı socket |
+| 5 | AppArmor profili | Kernel seviyesinde erişim kısıtı (enforce) |
+| 6 | open_basedir | PHP erişim dizinlerini kısıtlar |
+| 7 | disable_functions | `exec`, `system`, `shell_exec` vb. kapalı |
+| 8 | MariaDB GRANT izolasyonu | Domain yalnız kendi DB'sine erişir |
+| 9 | Redis ACL | Domain yalnız kendi key prefix'ine erişir |
+| 10 | Nginx güvenlik header'ları | HSTS, CSP, X-Frame-Options, rate limit |
+| 11 | Fail2Ban | Brute-force engelleme |
+| 12 | auditd | Dosya değişiklik denetimi |
+
+### Gelişmiş katmanlar (sunucu geneli — `srvctl init`)
+
+| Katman | Açıklama |
+|--------|----------|
+| ModSecurity WAF + OWASP CRS | Uygulama katmanı saldırı filtreleme |
+| seccomp (SystemCallFilter) | PHP-FPM için tehlikeli syscall engelleme |
+| cgroups v2 | Per-domain CPU/RAM/IO limiti |
+| AIDE | Dosya bütünlük kontrolü (günlük) |
+| ClamAV | Upload antivirüs taraması (günlük) |
+| GeoIP | Ülke bazlı engelleme |
 
 ---
 
 ## Hızlı Kurulum
 
 ```bash
-# 1. Dosyaları sunucuya kopyala
 scp -r srvctl/ root@server:/tmp/srvctl/
-
-# 2. Sunucuya bağlan
 ssh root@server
-
-# 3. Kur
-cd /tmp/srvctl
-sudo bash install.sh
-
-# 4. Yapılandırmayı düzenle
-sudo nano /usr/local/srvctl/conf/srvctl.conf
-
-# 5. Sunucuyu hazırla (tek seferlik)
-sudo srvctl init
-
-# 6. İlk domain'i ekle
+cd /tmp/srvctl && sudo bash install.sh
+sudo nano /usr/local/srvctl/conf/srvctl.conf   # SSH portu, PHP sürümü...
+sudo srvctl init                                # tek seferlik
 sudo srvctl domain add example.com --php=8.3
 ```
 
 ---
 
-## Komutlar
+## Komut Referansı
 
-### Sunucu Kurulumu
-
+### Sunucu
 ```bash
-sudo srvctl init
+sudo srvctl init        # Tek seferlik kurulum (12 + gelişmiş katman)
+sudo srvctl status      # Durum özeti
+sudo srvctl security audit   # Güvenlik denetimi (skor/100)
 ```
 
-Tek seferlik çalıştırılır. Kernel hardening, SSH güvenlik ayarları, firewall, Nginx, PHP-FPM, MariaDB, Redis, Fail2Ban ve auditd kurar/yapılandırır.
-
-### Domain Yönetimi
-
+### Domain — Temel
 ```bash
-# Yeni domain ekle (12 güvenlik katmanı otomatik)
-sudo srvctl domain add example.com
-sudo srvctl domain add example.com --php=8.2
-
-# Tüm domain'leri listele
+sudo srvctl domain add example.com [--php=8.3]
 sudo srvctl domain list
-
-# Domain detay bilgisi
 sudo srvctl domain info example.com
-
-# Domain kaldır (öncesinde otomatik yedek alır)
-sudo srvctl domain remove example.com
+sudo srvctl domain remove example.com        # öncesinde otomatik yedek
 ```
 
-### Deploy
-
+### Domain — Operasyonel (v2.0)
 ```bash
-# main branch'ten deploy
-sudo srvctl deploy example.com
-
-# Belirli branch'ten deploy
-sudo srvctl deploy example.com staging
+sudo srvctl domain clone kaynak.com hedef.com        # DB + dosya klonla
+sudo srvctl domain suspend example.com               # bakım modu (503 + sayfa)
+sudo srvctl domain unsuspend example.com
+sudo srvctl domain php-switch example.com 8.2        # PHP sürümü değiştir
+sudo srvctl domain resources example.com --memory=512M --cpu=50% --io=100
+sudo srvctl domain resources example.com --show
+sudo srvctl domain staging example.com               # staging.example.com klonu
+sudo srvctl domain migrate example.com user@host [--auto]
 ```
 
-İlk deploy'da git repo URL'si sorulur ve kaydedilir. Sonraki deploy'larda otomatik kullanır.
-
-**Zero-downtime deploy** nasıl çalışır:
-1. Git clone → yeni release dizini
-2. Composer install
-3. Shared dosyalar bağlanır (.env, writable/)
-4. İzinler ayarlanır
-5. **Atomic symlink switch** (anlık geçiş)
-6. PHP-FPM reload
-7. Son 5 release dışındakiler temizlenir
+### Deploy (zero-downtime)
+```bash
+sudo srvctl deploy example.com [branch]      # atomic switch + health check
+sudo srvctl deploy example.com --dry-run     # canlıya geçirmeden dene
+sudo srvctl deploy rollback example.com      # önceki sürüme dön
+sudo srvctl rollback example.com             # (kısayol — aynısı)
+sudo srvctl deploy health example.com        # sağlık kontrolü
+sudo srvctl deploy list example.com          # release geçmişi
+```
+**Akış:** git clone → composer → `pre-deploy.sh` hook → shared bağla → izinler → atomic symlink switch → health check (başarısızsa **otomatik rollback**) → `post-deploy.sh` hook → eski release temizliği (son 5).
+Hook'lar: `shared/hooks/pre-deploy.sh` ve `shared/hooks/post-deploy.sh` (varsa çalışır; `RELEASE_DIR`, `DOMAIN` env'leri verilir).
 
 ### Yedekleme
-
 ```bash
-# Tüm domain'leri yedekle (DB + dosya + Redis + config)
-sudo srvctl backup run
-
-# Tek domain yedekle
-sudo srvctl backup run example.com
-
-# Yedekleri listele
+sudo srvctl backup run [domain]
 sudo srvctl backup list
-
-# Geri yükle
 sudo srvctl backup restore 20250618_040000
 ```
+Günlük otomatik yedek (04:00), 30 günden eski yedekler silinir.
 
-Günlük otomatik yedekleme cron ile çalışır (04:00). 30 günden eski yedekler otomatik silinir.
+> **Güvenlik notu (Faz 1):** Yedek paketleri `.credentials` ve `.srvctl-meta`
+> dosyalarını **içermez** (parolaların world-readable yedeğe sızmaması için).
+> Geri yüklemede DB/Redis parolaları yeniden üretilir veya `.credentials`
+> güvenli (band-dışı) bir kopyadan elle yerleştirilir. Yedek şifrelemesi
+> ileride eklenecektir.
 
 ### SSL
-
 ```bash
-# Tüm sertifikaları yenile
 sudo srvctl ssl renew
-
-# Sertifika durumlarını göster
 sudo srvctl ssl status
 ```
 
-SSL yenileme otomatik olarak günde 2 kez çalışır (certbot cron).
-
-### Güvenlik Denetimi
-
+### İzleme & Alarm
 ```bash
-sudo srvctl security audit
+sudo srvctl monitor live                # canlı sistem + per-domain kaynak
+sudo srvctl monitor domains             # per-domain CPU/RAM/disk/conn
+sudo srvctl monitor uptime [domain]     # HTTP + SSL süre kontrolü
+sudo srvctl monitor check               # tam kontrol + alarm + oto-kurtarma
+sudo srvctl monitor traffic example.com # GoAccess trafik analizi
 ```
 
-Tüm güvenlik katmanlarını kontrol edip **skor/100** verir:
-- OS güvenliği (UFW, SSH, hidepid, kernel hardening)
-- Servis durumları (Nginx, PHP-FPM, MariaDB, Redis, Fail2Ban, auditd, AppArmor)
-- MariaDB güvenliği (localhost, local-infile, root şifre)
-- Redis güvenliği (localhost, ACL, tehlikeli komutlar)
-- PHP güvenliği (expose_php, display_errors, disable_functions)
-- Domain izolasyonu (chroot, AppArmor, dosya izinleri)
-
-### Sunucu Durumu
-
+### Bildirim (Telegram / Discord / Slack / Email)
 ```bash
-sudo srvctl status
+sudo srvctl notify setup
+sudo srvctl notify test
 ```
 
-Tek bakışta: sistem bilgisi, kaynak kullanımı, servis durumları, domain listesi, Fail2Ban istatistikleri, son yedek bilgisi.
+### IP & Ağ
+```bash
+sudo srvctl ip ban 1.2.3.4 [süre]
+sudo srvctl ip unban 1.2.3.4
+sudo srvctl ip whitelist add 1.2.3.4
+sudo srvctl ip blacklist add 1.2.3.4
+sudo srvctl ip geoblock add CN
+sudo srvctl ip list
+```
+
+### Cloudflare
+```bash
+sudo srvctl cloudflare setup
+sudo srvctl cloudflare dns list example.com
+sudo srvctl cloudflare dns add example.com A www 1.2.3.4
+sudo srvctl cloudflare purge example.com
+sudo srvctl cloudflare waf enable example.com
+sudo srvctl cloudflare ddos on example.com     # Under Attack modu
+sudo srvctl cloudflare status example.com
+```
+
+### Kullanıcı Yönetimi (RBAC + 2FA)
+```bash
+sudo srvctl user add ali --role=developer      # admin | developer | viewer
+sudo srvctl user grant ali example.com
+sudo srvctl user revoke ali example.com
+sudo srvctl user key add ali ~/.ssh/id_ed25519.pub
+sudo srvctl user 2fa setup ali                 # TOTP
+sudo srvctl user audit [ali]
+sudo srvctl user list
+```
+
+### Plugin & Webhook & Changelog
+```bash
+sudo srvctl plugin create myplugin
+sudo srvctl plugin install <git_url>
+sudo srvctl plugin list
+
+sudo srvctl webhook setup example.com          # GitHub/GitLab push → auto-deploy
+sudo srvctl webhook start
+
+sudo srvctl changelog show 20
+sudo srvctl changelog search DEPLOY
+```
 
 ---
 
 ## Dizin Yapısı
 
 ### srvctl kurulum dizini
-
 ```
 /usr/local/srvctl/
-├── bin/srvctl              ← Ana CLI
-├── lib/                    ← Modüller
-│   ├── core.sh
-│   ├── init.sh
-│   ├── domain.sh
-│   ├── deploy.sh
-│   ├── backup.sh
-│   ├── ssl.sh
-│   ├── security.sh
-│   └── status.sh
-├── templates/              ← Şablonlar
-│   ├── nginx/
-│   ├── php-fpm/
-│   ├── apparmor/
-│   └── logrotate/
-├── conf/srvctl.conf        ← Yapılandırma
-└── logs/srvctl.log         ← Operasyon logları
+├── bin/srvctl
+├── lib/            core, init, domain, deploy, backup, ssl, security, status,
+│                   monitor, notify, cloudflare, ip, user, plugin, webhook, changelog
+├── templates/      nginx, php-fpm, apparmor, logrotate, cgroups, seccomp
+├── completions/    srvctl.bash, srvctl.zsh
+├── plugins/        (kurulan plugin'ler)
+├── conf/srvctl.conf
+└── logs/           srvctl.log, changelog.log, webhook.log, aide.log, clamav.log
 ```
 
-### Her domain'in dizin yapısı
-
+### Her domain
 ```
 /var/www/example.com/
-├── public_html/            ← Nginx root (CI4 public/ symlink)
-├── private/                ← CI4 uygulama kodu
-│   ├── app/
-│   ├── modules/
-│   ├── system/
-│   ├── vendor/
-│   └── writable/
-│       ├── cache/
-│       ├── logs/
-│       ├── session/
-│       └── uploads/
-├── shared/                 ← Deploy'lar arası paylaşılan (.env, writable/)
-├── releases/               ← Deploy geçmişi (son 5)
-├── logs/                   ← Nginx + PHP-FPM logları
-├── tmp/                    ← PHP upload temp
-├── sessions/               ← PHP session (chroot içi)
-├── dev/                    ← chroot cihazları (null, urandom, zero)
-├── etc/                    ← chroot DNS/hosts
-└── .credentials            ← DB/Redis kimlik bilgileri (root:600)
+├── public_html/    Nginx root (deploy'da release/public'e symlink)
+├── private/        Uygulama kodu (app, system, vendor, writable...)
+├── shared/         Deploy'lar arası paylaşılan (.env, writable, hooks/)
+├── releases/       Deploy geçmişi (son 5)
+├── logs/  tmp/  sessions/
+├── dev/  etc/      chroot ortamı
+├── .credentials    DB/Redis kimlik bilgileri (root:600)
+└── .suspended      (varsa) bakım modu bayrağı
 ```
 
 ---
 
-## Yapılandırma
-
-`/usr/local/srvctl/conf/srvctl.conf`:
-
+## Yapılandırma — `/usr/local/srvctl/conf/srvctl.conf`
 ```bash
-DEFAULT_PHP_VERSION=8.3     # Varsayılan PHP versiyonu
-SSH_PORT=2222               # SSH portu
-WEB_ROOT=/var/www           # Web dizini kökü
-BACKUP_DIR=/backups         # Yedekleme dizini
-BACKUP_RETENTION_DAYS=30    # Yedek saklama süresi (gün)
-DEPLOYER_USER=deployer      # Deploy kullanıcısı
-```
-
----
-
-## CI4 (CodeIgniter 4) Entegrasyonu
-
-### İlk Deploy
-
-```bash
-# 1. Domain ekle
-sudo srvctl domain add ci4ms.example.com --php=8.3
-
-# 2. .env dosyasını hazırla
-sudo cp /var/www/ci4ms.example.com/shared/.env.example \
-        /var/www/ci4ms.example.com/shared/.env
-sudo nano /var/www/ci4ms.example.com/shared/.env
-```
-
-### .env Örneği
-
-```ini
-CI_ENVIRONMENT = production
-app.baseURL = 'https://ci4ms.example.com'
-
-database.default.hostname = 127.0.0.1
-database.default.database = db_ci4ms_example_com
-database.default.username = usr_ci4ms_example_com
-database.default.password = [.credentials dosyasından alın]
-database.default.DBDriver = MySQLi
-database.default.charset = utf8mb4
-
-# Redis (CI4 Cache)
-# Prefix: ci4ms_example_com:
-```
-
-### Deploy
-
-```bash
-sudo srvctl deploy ci4ms.example.com main
+DEFAULT_PHP_VERSION=8.3
+SSH_PORT=2222
+WEB_ROOT=/var/www
+BACKUP_DIR=/backups
+BACKUP_RETENTION_DAYS=30
+DEPLOYER_USER=deployer
+# REDIS_ADMIN_PASS=        (init doldurur)
+# CF_API_TOKEN=            (cloudflare setup doldurur)
+# NOTIFY_TELEGRAM_TOKEN=   (notify setup doldurur)
 ```
 
 ---
 
 ## Güvenlik Doğrulama Testleri
-
-Domain ekledikten sonra şu testleri yapın:
-
 ```bash
-# 1. Dosya izolasyonu: Domain A, Domain B'nin dosyasını okuyabilir mi?
-sudo -u web_domain_a cat /var/www/domain_b/public_html/index.php
-# ✅ Beklenen: Permission denied
+# Dosya izolasyonu
+sudo -u web_domain_a cat /var/www/domain_b/public_html/index.php   # Permission denied
 
-# 2. DB izolasyonu: Domain A, Domain B'nin DB'sine erişebilir mi?
-mysql -u usr_domain_a -p -e "USE db_domain_b"
-# ✅ Beklenen: Access denied
+# DB izolasyonu
+mysql -u usr_domain_a -p -e "USE db_domain_b"                      # Access denied
 
-# 3. Redis izolasyonu:
-redis-cli --user redis_domain_a --pass PASS SET domain_b:key "hack"
-# ✅ Beklenen: NOPERM
+# WAF (ModSecurity)
+curl "https://example.com/?id=1' OR 1=1--"                        # 403
 
-# 4. WAF testi:
-curl "https://example.com/?id=1' OR 1=1--"
-# ✅ Beklenen: 403 veya 444
+# AppArmor
+sudo aa-status | grep srvctl                                       # enforce
 
-# 5. AppArmor:
-sudo aa-status | grep srvctl
-# ✅ Beklenen: Tüm profiller "enforce" modda
-
-# 6. Tam güvenlik denetimi:
-sudo srvctl security audit
-# ✅ Beklenen: Skor ≥ 90/100
+# Tam denetim
+sudo srvctl security audit                                         # skor ≥ 90/100
 ```
 
 ---
@@ -295,52 +244,12 @@ sudo srvctl security audit
 
 | Zamanlama | İşlem |
 |-----------|-------|
-| `0 3,15 * * *` | SSL sertifika yenileme |
-| `0 4 * * *` | Günlük yedekleme |
-
----
-
-## Sorun Giderme
-
-### PHP-FPM socket hatası
-```bash
-systemctl status php8.3-fpm
-journalctl -u php8.3-fpm --since "10 min ago"
-```
-
-### Nginx 502 Bad Gateway
-```bash
-# Socket'in varlığını kontrol et
-ls -la /run/php/php8.3-fpm-*.sock
-
-# Pool yapılandırmasını kontrol et
-php-fpm8.3 -t
-```
-
-### chroot içinde dosya bulunamıyor
-```bash
-# chroot ortamını kontrol et
-ls -la /var/www/example.com/dev/
-ls -la /var/www/example.com/etc/
-
-# Shared libraries'i güncelle (PHP güncellemesinden sonra)
-ldd /usr/sbin/php-fpm8.3
-```
-
-### AppArmor hata veriyor
-```bash
-# Profili test moduna al
-sudo aa-complain /etc/apparmor.d/srvctl-example_com
-
-# Logları kontrol et
-sudo dmesg | grep DENIED
-
-# Düzelttikten sonra enforce'a geri al
-sudo aa-enforce /etc/apparmor.d/srvctl-example_com
-```
+| `0 3,15 * * *` | SSL yenileme |
+| `0 4 * * *`    | Günlük yedekleme |
+| `30 5 * * *`   | AIDE bütünlük kontrolü |
+| `0 6 * * *`    | ClamAV upload taraması |
 
 ---
 
 ## Lisans
-
-Bu araç özel kullanım için geliştirilmiştir.
+Özel kullanım için geliştirilmiştir.

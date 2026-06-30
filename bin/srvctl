@@ -116,7 +116,7 @@ case "${1:-help}" in
         ;;
     *)
         # Plugin komutlarını kontrol et
-        local plugin_handled=false
+        plugin_handled=false
         if [[ -d "${SRVCTL_ROOT}/plugins" ]]; then
             for plugin_dir in "${SRVCTL_ROOT}/plugins"/*/; do
                 [[ ! -f "${plugin_dir}/.enabled" ]] && continue
