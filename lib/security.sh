@@ -4,6 +4,31 @@
 #  Tüm katmanları kontrol edip skor verir
 # ═══════════════════════════════════════════════
 
+# ─── Audit enforcement parser'ları (saf; fixture ile test edilebilir) ───
+# aa-status metninde <profil> "enforce mode" bölümünde listeli mi? (0=evet)
+_audit_aa_enforced() {
+    local text="$1" profile="$2"
+    awk -v p="$profile" '
+        /enforce mode\.$/ { sec=1; next }
+        / mode\.$/        { sec=0 }
+        /processes are/   { sec=0 }
+        sec==1 { l=$0; gsub(/^[ \t]+|[ \t]+$/,"",l); if (l==p) f=1 }
+        END { exit(f?0:1) }
+    ' <<< "$text"
+}
+
+# /proc/<pid>/status metninde Seccomp == 2 (filter mode) mı? (0=evet)
+_audit_seccomp_filtered() {
+    local val
+    val=$(grep -E '^Seccomp:' <<< "$1" | awk '{print $2}')
+    [[ "$val" == "2" ]]
+}
+
+# ControlGroup metni <slice>'ı içeriyor mu? (0=evet)
+_audit_in_slice() {
+    [[ "$1" == *"$2"* ]]
+}
+
 # ───────────────────────────────────────────────────────────────
 #  Eval'siz kontrol çalıştırıcı (saf, test edilebilir).
 #  Kullanım: _security_run_check <on_ok_fn> <on_bad_fn> <label> <cmd...>
