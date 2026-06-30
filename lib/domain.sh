@@ -164,7 +164,9 @@ _domain_write_credentials() {
     local redis_user="$8" redis_pass="$9" redis_prefix="${10}"
     local creds_file="${base}/.credentials"
 
-    # Sır yazımı boyunca dünya/grup erişimini kapat
+    # Foundation primitive: dosyayı 0600 root:root ile önceden oluştur
+    secure_file "$creds_file" 600
+    # İçeriği umask 077 bağlamında yaz (dosya zaten 0600, içerik güvenli)
     (
         umask 077
         cat > "$creds_file" << CREDS
@@ -185,9 +187,6 @@ REDIS_PASS=${redis_pass}
 REDIS_PREFIX=${redis_prefix}
 CREDS
     )
-    # Mod/sahiplik invariantını kesinleştir (chown macOS'ta sessizce geçer)
-    chmod 600 "$creds_file"
-    chown root:root "$creds_file" 2>/dev/null || true
 }
 
 # ═══════════════════════════════════════════════
