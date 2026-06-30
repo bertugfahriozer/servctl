@@ -63,6 +63,11 @@ sudo srvctl security harden-fs <d>    # Dosya-sahiplik modelini ÖNİZLE (dry-ru
 sudo srvctl security harden-fs <d> --apply   # uygula | --revert geri al | --all tümü
 ```
 
+> **Per-domain FPM unit (Faz 2/T7a):** Her domain kendi `srvctl-fpm-<sname>.service`'inde
+> çalışır; AppArmor profili (`AppArmorProfile=`) ve cgroups slice (`Slice=`) systemd üzerinden
+> gerçekten uygulanır. Mevcut kurulumları taşımak:
+> `srvctl security harden-fpm <domain> [--apply|--all]`
+
 > **Dosya-sahiplik modeli (Faz 2/T1):** Her domain'in base dizini (`/var/www/<domain>/`)
 > `root:root 751`'dir; web kullanıcısı yalnız yazması gereken alt dizinlere (public_html,
 > private/writable, tmp, sessions, logs) sahiptir. Böylece `.credentials`/`.srvctl-meta`/

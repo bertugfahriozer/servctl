@@ -62,7 +62,7 @@ fi
 # ─── 1. Dizin yapısı ───
 echo -e "  ${CYAN}[1/5]${NC} Dizin yapısı oluşturuluyor..."
 mkdir -p "${INSTALL_DIR}"/{bin,lib,templates,conf,logs}
-mkdir -p "${INSTALL_DIR}/templates"/{nginx,php-fpm,apparmor,logrotate}
+mkdir -p "${INSTALL_DIR}/templates"/{nginx,php-fpm,apparmor,logrotate,systemd}
 
 # ─── 2. Dosyaları kopyala ───
 echo -e "  ${CYAN}[2/5]${NC} Dosyalar kopyalanıyor..."
@@ -78,7 +78,7 @@ done
 chmod +x "${INSTALL_DIR}"/lib/*.sh
 
 # templates/
-for tpl_dir in nginx php-fpm apparmor logrotate; do
+for tpl_dir in nginx php-fpm apparmor logrotate systemd; do
     if [[ -d "${SCRIPT_DIR}/templates/${tpl_dir}" ]]; then
         cp "${SCRIPT_DIR}/templates/${tpl_dir}/"* "${INSTALL_DIR}/templates/${tpl_dir}/" 2>/dev/null || true
     fi
