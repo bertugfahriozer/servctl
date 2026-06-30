@@ -61,7 +61,13 @@ sudo srvctl status      # Durum özeti
 sudo srvctl security audit            # Güvenlik denetimi (skor/100)
 sudo srvctl security harden-fs <d>    # Dosya-sahiplik modelini ÖNİZLE (dry-run)
 sudo srvctl security harden-fs <d> --apply   # uygula | --revert geri al | --all tümü
+sudo srvctl security harden-fpm <d>   # FPM unit modelini ÖNİZLE | --apply | --all
 ```
+
+> **Fail-closed audit (Faz 2/T7b):** `security audit` artık AppArmor/seccomp/cgroups'u
+> **gerçek enforce durumuyla** kontrol eder (yalnız servis/profil-adı varlığıyla değil):
+> bir domain'in FPM unit'i gerçekten enforce değilse ilgili kontrol **FAIL** verir.
+> modsec /admin XSS koruması yalnız 941160 (zengin-metin yanlış-pozitifi) hariç aktiftir.
 
 > **Per-domain FPM unit (Faz 2/T7a):** Her domain kendi `srvctl-fpm-<sname>.service`'inde
 > çalışır; AppArmor profili (`AppArmorProfile=`) ve cgroups slice (`Slice=`) systemd üzerinden
