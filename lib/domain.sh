@@ -136,6 +136,29 @@ _domain_write_vhost() {
         > "${sites}/${domain}.conf"
 }
 
+# Per-domain FPM config (global+pool) + systemd unit dosyalarını RENDER eder.
+# systemctl ÇAĞIRMAZ (aktivasyon _domain_activate_fpm_unit, [HOST]).
+# Test için SRVCTL_FPM_DIR / SRVCTL_SYSTEMD_DIR override edilebilir.
+_domain_render_fpm_unit() {
+    local domain="$1" php_version="$2"
+    local sname; sname=$(safe_name "$domain")
+    local web_user="web_${sname}"
+    local fpm_dir="${SRVCTL_FPM_DIR:-/etc/srvctl/fpm}"
+    local sysd_dir="${SRVCTL_SYSTEMD_DIR:-/etc/systemd/system}"
+    mkdir -p "$fpm_dir" "$sysd_dir"
+    # config = [global] + pool (pool.conf.tpl TEK kaynak, kopyalanmaz)
+    {
+        render_template "${SRVCTL_TEMPLATES}/php-fpm/fpm-global.conf.tpl" \
+            "DOMAIN=${domain}" "SAFE_NAME=${sname}" "WEB_ROOT=${WEB_ROOT}"
+        render_template "${SRVCTL_TEMPLATES}/php-fpm/pool.conf.tpl" \
+            "DOMAIN=${domain}" "SAFE_NAME=${sname}" "WEB_ROOT=${WEB_ROOT}" \
+            "PHP_VERSION=${php_version}" "WEB_USER=${web_user}"
+    } > "${fpm_dir}/${sname}.conf"
+    render_template "${SRVCTL_TEMPLATES}/systemd/srvctl-fpm.service.tpl" \
+        "DOMAIN=${domain}" "SAFE_NAME=${sname}" "PHP_VERSION=${php_version}" \
+        > "${sysd_dir}/srvctl-fpm-${sname}.service"
+}
+
 # Sihirbaz: girdileri toplar, WIZ_* global değişkenlerine yazar. İptalde 1 döner.
 _domain_wizard_collect() {
     WIZ_DOMAIN=""; WIZ_PHP=""; WIZ_PROFILE=""; WIZ_SSL="evet"; WIZ_SENSITIVE=""

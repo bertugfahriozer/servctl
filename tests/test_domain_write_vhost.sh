@@ -29,7 +29,7 @@ assert_contains "$conf" 'location ~ ^/(admin|backend) {' "meta sensitive overrid
 _domain_write_vhost example.com '8.3; } location /pwn {' relaxed http 2>/dev/null
 conf=$(cat "${SITES_AVAILABLE}/example.com.conf")
 assert_not_contains "$conf" 'location /pwn {'              "tainted php_version enjekte edilmedi"
-assert_contains     "$conf" "php${DEFAULT_PHP_VERSION}-fpm" "geçersiz php_version DEFAULT'a düştü"
+assert_contains     "$conf" "php-fpm${DEFAULT_PHP_VERSION}" "geçersiz php_version DEFAULT'a düştü"
 
 rm -rf "$WEB_ROOT" "$SITES_AVAILABLE"
 test_summary
