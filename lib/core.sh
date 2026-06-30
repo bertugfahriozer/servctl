@@ -179,6 +179,45 @@ read_kv_file() {
     return 0
 }
 
+# ─── Sahiplik kapısı (PREDIKAT: 0=güvenli 1=güvensiz; exit YOK) ───
+# <path> ve ${WEB_ROOT}'a kadar (dahil) tüm üst dizinler root sahipli,
+# symlink değil ve grup/diğer-yazılabilir değil mi? Değilse 1 döner.
+assert_root_owned_path() {
+    local path="$1"
+    [[ -e "$path" ]] || return 1
+
+    local cur="$path"
+    # WEB_ROOT'un kanonik kökü; döngü buraya gelince dahil edip durur.
+    local stop
+    stop="$(cd "${WEB_ROOT}" 2>/dev/null && pwd -P)" || return 1
+
+    while :; do
+        # symlink olmamalı (dosya veya ara dizin)
+        [[ -L "$cur" ]] && return 1
+
+        local owner mode
+        owner="$(_stat_owner "$cur")" || return 1
+        mode="$(_stat_mode "$cur")"   || return 1
+        [[ "$owner" == "root" ]] || return 1
+        # grup-yazılabilir (mod & 020) veya diğer-yazılabilir (mod & 002) yasak.
+        # mode son iki octal hanesi: grup, diğer.
+        local last2="${mode: -2}"
+        local grp="${last2:0:1}" oth="${last2:1:1}"
+        (( (grp & 2) == 0 )) || return 1
+        (( (oth & 2) == 0 )) || return 1
+
+        # WEB_ROOT köküne ulaştıysak (onu da kontrol ettik) bitir.
+        local curp
+        curp="$(cd "$(dirname "$cur")" 2>/dev/null && pwd -P)/$(basename "$cur")" 2>/dev/null || curp="$cur"
+        [[ "$cur" == "$stop" || "$curp" == "$stop" ]] && return 0
+
+        local parent
+        parent="$(dirname "$cur")"
+        [[ "$parent" == "$cur" ]] && return 0   # '/'a ulaştık (WEB_ROOT'tan yukarı çıkma)
+        cur="$parent"
+    done
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
