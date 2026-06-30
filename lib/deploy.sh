@@ -84,9 +84,9 @@ _deploy_run() {
     local shared_dir="${base}/shared"
     local public_dir="${base}/public_html"
 
-    read_credentials "$domain"
-    local php_version="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
-    local web_user="${WEB_USER:-web_${sname}}"
+    # Kimlikleri safe_name'den türet; PHP'yi doğrula (web-owned .credentials'a güvenme)
+    local php_version; php_version=$(_derive_php "$domain" "${DEFAULT_PHP_VERSION}")
+    local web_user="web_${sname}"
 
     local prev_target=""
     [[ -L "$public_dir" ]] && prev_target=$(readlink -f "$public_dir")
@@ -223,8 +223,7 @@ _deploy_rollback() {
     local releases="${base}/releases"
     [[ -d "$releases" ]] || error "Release dizini yok: ${releases}"
 
-    read_credentials "$domain"
-    local php_version="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    local php_version; php_version=$(_derive_php "$domain" "${DEFAULT_PHP_VERSION}")
 
     local current_real=""; [[ -L "$public_dir" ]] && current_real=$(readlink -f "$public_dir")
     local current_rel="${current_real%/public}"

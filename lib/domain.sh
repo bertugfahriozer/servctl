@@ -785,10 +785,9 @@ _domain_clone() {
     local src_sname; src_sname=$(safe_name "$src")
     local dst_sname; dst_sname=$(safe_name "$dst")
 
-    local PHP_VERSION="${DEFAULT_PHP_VERSION}" DB_NAME="db_${src_sname}"
-    read_credentials "$src"
-    local src_php="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
-    local src_db="${DB_NAME:-db_${src_sname}}"
+    # Kimlikleri dosyaya güvenmeden safe_name'den türet; PHP'yi doğrula
+    local src_php; src_php=$(_derive_php "$src" "${DEFAULT_PHP_VERSION}")
+    local src_db="db_${src_sname}"
 
     header "Domain Klonlama: ${src} → ${dst}"
 
@@ -797,8 +796,7 @@ _domain_clone() {
 
     local dst_base="${WEB_ROOT}/${dst}"
     local dst_web_user="web_${dst_sname}"
-    local dst_db; dst_db=$(grep -E '^DB_NAME=' "${dst_base}/.credentials" 2>/dev/null | cut -d= -f2)
-    dst_db="${dst_db:-db_${dst_sname}}"
+    local dst_db="db_${dst_sname}"
 
     step "2/4" "Dosyalar kopyalanıyor..."
     if [[ -d "${src_base}/public_html" ]]; then
@@ -1022,10 +1020,9 @@ _domain_migrate() {
 
     local sname; sname=$(safe_name "$domain")
     local base="${WEB_ROOT}/${domain}"
-    local PHP_VERSION="${DEFAULT_PHP_VERSION}" DB_NAME="db_${sname}"
-    read_credentials "$domain"
-    local db="${DB_NAME:-db_${sname}}"
-    local php="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    # Identifier'ları safe_name'den türet; PHP'yi doğrula (dosyaya güvenme)
+    local db="db_${sname}"
+    local php; php=$(_derive_php "$domain" "${DEFAULT_PHP_VERSION}")
 
     local stamp; stamp=$(date +%Y%m%d_%H%M%S)
     local bundle="${BACKUP_DIR}/migrate-${domain}-${stamp}"

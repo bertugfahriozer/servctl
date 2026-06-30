@@ -370,6 +370,21 @@ read_credentials() {
         REDIS_USER REDIS_PASS REDIS_PREFIX
 }
 
+# Domain için doğrulanmış PHP versiyonu döndür.
+# .credentials'taki PHP_VERSION yalnızca assert_php_version geçerse kullanılır,
+# aksi halde verilen fallback (varsayılan DEFAULT_PHP_VERSION) döner.
+# Böylece bozuk/saldırgan .credentials root'a path/komut enjekte edemez.
+_derive_php() {
+    local domain="$1" fallback="${2:-${DEFAULT_PHP_VERSION}}"
+    local PHP_VERSION=""
+    read_credentials "$domain"
+    if [[ -n "${PHP_VERSION:-}" ]] && assert_php_version "${PHP_VERSION}"; then
+        echo "${PHP_VERSION}"
+    else
+        echo "${fallback}"
+    fi
+}
+
 # ─── Rate-Limit Profilleri ───
 SRVCTL_RATE_PROFILES="${SRVCTL_RATE_PROFILES:-${SRVCTL_ROOT}/conf/rate-profiles.conf}"
 
