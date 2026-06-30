@@ -78,6 +78,17 @@ _deploy_validate_repo_url() {
     return 1
 }
 
+# shared/ artefaktı root operasyonu (ln/chown -R) için güvenli mi?
+# PREDİKAT: 0=güvenli, 1=güvensiz. Symlink (dangling dahil) reddedilir —
+# yoksa web_user 'shared/writable'ı /etc'ye symlink yapıp 'chown -R' ile
+# /etc'yi ele geçirebilir (yetki yükseltme). Var olmayan yol da güvensiz sayılır.
+_deploy_assert_safe_shared() {
+    local path="$1"
+    [[ -L "$path" ]] && return 1
+    [[ -e "$path" ]] || return 1
+    return 0
+}
+
 # ───────────────────────────────────────────────────────────────
 #  deploy <domain> [branch] [--dry-run]
 # ───────────────────────────────────────────────────────────────
@@ -158,13 +169,17 @@ _deploy_run() {
     # 4. Shared dosyalar
     step "4/7" "Shared dosyalar bağlanıyor..."
     mkdir -p "${shared_dir}"
-    if [[ -f "${shared_dir}/.env" ]]; then
+    if [[ -e "${shared_dir}/.env" ]] && _deploy_assert_safe_shared "${shared_dir}/.env"; then
         ln -sf "${shared_dir}/.env" "${release_dir}/.env"
         success ".env bağlandı"
+    elif [[ -L "${shared_dir}/.env" ]]; then
+        warn "shared/.env bir symlink — güvenlik nedeniyle atlandı"
     else
         warn ".env bulunamadı: ${shared_dir}/.env"
     fi
     if [[ -d "${shared_dir}/writable" ]]; then
+        _deploy_assert_safe_shared "${shared_dir}/writable" \
+            || error "shared/writable bir symlink — deploy reddedildi (chown -R yetki-yükseltme riski)"
         rm -rf "${release_dir}/writable"
         ln -sf "${shared_dir}/writable" "${release_dir}/writable"
     elif [[ -d "${release_dir}/writable" ]]; then
@@ -178,6 +193,8 @@ _deploy_run() {
     chown -R "${web_user}:${web_user}" "${release_dir}"
     chmod -R 750 "${release_dir}"
     if [[ -d "${shared_dir}/writable" ]]; then
+        _deploy_assert_safe_shared "${shared_dir}/writable" \
+            || error "shared/writable bir symlink — deploy reddedildi (chown -R yetki-yükseltme riski)"
         chmod -R 770 "${shared_dir}/writable"
         chown -R "${web_user}:${web_user}" "${shared_dir}/writable"
     fi

@@ -102,6 +102,11 @@ sudo srvctl deploy list example.com          # release geçmişi
 **Akış:** git clone → composer → `pre-deploy.sh` hook → shared bağla → izinler → atomic symlink switch → health check (başarısızsa **otomatik rollback**) → `post-deploy.sh` hook → eski release temizliği (son 5).
 Hook'lar: `shared/hooks/pre-deploy.sh` ve `shared/hooks/post-deploy.sh` (varsa çalışır; `RELEASE_DIR`, `DOMAIN` env'leri verilir).
 
+> **Güvenlik (Faz 2/T3):** Deploy hook'ları ve `composer install` per-domain web
+> kullanıcısı olarak (`runuser`, root **değil**) çalışır — kötü niyetli composer
+> lifecycle script'i ya da hook'u root'a ulaşamaz. `shared/.env`/`shared/writable`
+> bir symlink ise reddedilir (`chown -R` ile jail dışına çıkış engellenir).
+
 ### Yedekleme
 ```bash
 sudo srvctl backup run [domain]
