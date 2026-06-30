@@ -90,6 +90,34 @@ _fs_revert() {
     done < "$rec"
 }
 
+# HEDEF sahiplik modelini UYGULAR (root gerekir). Strateji: önce tüm ağaç web_user,
+# sonra base'in KENDİSİ + chroot sistem dizinleri + kontrol dosyaları root'a geri alınır.
+# Böylece web app yazma erişimini korur ama base'de write/unlink yapamaz (RC1 kapalı).
+_domain_apply_fs_ownership() {
+    local base="$1" web_user="$2"
+    # 1. Tüm ağaç web_user
+    chown -R "${web_user}:${web_user}" "$base"
+    # 2. base dizininin KENDİSİ root (yalnız bu inode — çocuklar web kalır)
+    chown root:root "$base"; chmod 751 "$base"
+    # 3. chroot sistem dizinleri root (recursive)
+    local sysd
+    for sysd in dev etc lib lib64 usr; do
+        [[ -d "${base}/${sysd}" ]] && { chown -R root:root "${base}/${sysd}"; chmod 755 "${base}/${sysd}"; }
+    done
+    # 4. kontrol dosyaları root
+    local cf
+    for cf in .credentials .srvctl-meta .deploy-repo; do
+        [[ -e "${base}/${cf}" ]] && chown root:root "${base}/${cf}"
+    done
+    [[ -e "${base}/.credentials" ]] && chmod 600 "${base}/.credentials"
+    [[ -e "${base}/.srvctl-meta" ]] && chmod 644 "${base}/.srvctl-meta"
+    [[ -e "${base}/.deploy-repo" ]] && chmod 600 "${base}/.deploy-repo"
+    # 5. leaf izinleri (sahiplik zaten web_user)
+    chmod 750 "${base}/public_html" "${base}/private" "${base}/logs" 2>/dev/null || true
+    chmod 770 "${base}/tmp" "${base}/sessions" 2>/dev/null || true
+    chmod -R 770 "${base}/private/writable" 2>/dev/null || true
+}
+
 # vhost config'i seçili profil + meta ile üret ve yaz.
 # mode: "http" → vhost.conf.tpl, "ssl" → vhost-ssl.conf.tpl
 # SITES_AVAILABLE env'i test için override edilebilir (varsayılan /etc/nginx/sites-available).
