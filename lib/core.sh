@@ -218,6 +218,23 @@ assert_root_owned_path() {
     done
 }
 
+# ─── Güvenli FS oluşturma (umask 077 altında) ───
+# chown macOS dev kutusunda başarısız olabilir → guard'lı; mod/varlık test edilir.
+secure_file() {
+    local path="$1" mode="${2:-600}"
+    ( umask 077; : > "$path" 2>/dev/null || true )
+    [[ -e "$path" ]] || { umask 077; : > "$path"; }
+    chmod "$mode" "$path"
+    chown root:root "$path" 2>/dev/null || true
+}
+
+secure_dir() {
+    local path="$1" mode="${2:-700}"
+    ( umask 077; mkdir -p "$path" )
+    chmod "$mode" "$path"
+    chown root:root "$path" 2>/dev/null || true
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
