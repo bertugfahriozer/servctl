@@ -22,12 +22,14 @@ _security_run_check() {
 cmd_security() {
     require_root
     case "${1:-help}" in
-        audit)     _security_audit ;;
-        harden-fs) _security_harden_fs "${@:2}" ;;
+        audit)      _security_audit ;;
+        harden-fs)  _security_harden_fs "${@:2}" ;;
+        harden-fpm) _security_harden_fpm "${@:2}" ;;
         *)
             echo ""
             echo "  Kullanım: srvctl security audit"
             echo "            srvctl security harden-fs <domain>|--all [--apply|--revert]"
+            echo "            srvctl security harden-fpm <domain>|--all [--apply]"
             echo ""
             ;;
     esac
@@ -313,4 +315,49 @@ _harden_fs_dry() {
         printf '    %s -> %s:%s %s  (mevcut: %s %s)\n' \
             "$path" "$owner" "$owner" "$mode" "$(_stat_owner "$path")" "$(_stat_mode "$path")"
     done < <(_domain_fs_plan "$base" "$web_user")
+}
+
+# ─── Shared-pool → per-domain FPM unit migrasyonu (T7a) ───
+# Kullanım: harden-fpm <domain>|--all [--apply]   (varsayılan: dry-run)
+_security_harden_fpm() {
+    local domain="" mode="dry" all=false arg
+    for arg in "$@"; do
+        case "$arg" in
+            --apply) mode="apply" ;;
+            --all)   all=true ;;
+            -*)      error "Bilinmeyen seçenek: ${arg}" ;;
+            *)       domain="$arg" ;;
+        esac
+    done
+    local targets=() d
+    if $all; then mapfile -t targets < <(list_all_domains)
+    else [[ -z "$domain" ]] && error "Kullanım: srvctl security harden-fpm <domain>|--all [--apply]"; targets=("$domain"); fi
+    for d in "${targets[@]}"; do
+        [[ "$mode" == "apply" ]] && _harden_fpm_apply "$d" || _harden_fpm_dry "$d"
+    done
+}
+
+# Dry-run: ne oluşturulacağını yaz, dokunma.
+_harden_fpm_dry() {
+    local domain="$1" sname; sname=$(safe_name "$domain")
+    domain_exists "$domain" || { warn "Domain yok: ${domain}"; return 0; }
+    echo "  ── ${domain} (dry-run; uygulamak için --apply) ──"
+    echo "    oluştur: /etc/srvctl/fpm/${sname}.conf"
+    echo "    oluştur: /etc/systemd/system/srvctl-fpm-${sname}.service (Slice + AppArmorProfile)"
+    echo "    kaldır:  /etc/php/<ver>/fpm/pool.d/${sname}.conf (eski shared pool)"
+    echo "    systemctl enable --now srvctl-fpm-${sname}"
+}
+
+# Apply: per-domain FPM unit oluştur, eski shared pool'u kaldır. [SADECE HOST]
+_harden_fpm_apply() {
+    local domain="$1" sname php_ver
+    sname=$(safe_name "$domain")
+    domain_exists "$domain" || { warn "Domain yok: ${domain}"; return 0; }
+    php_ver=$(_derive_php "$domain" "${DEFAULT_PHP_VERSION}")
+    _domain_render_fpm_unit "$domain" "$php_ver"
+    _domain_activate_fpm_unit "$domain"
+    rm -f "/etc/php/${php_ver}/fpm/pool.d/${sname}.conf"
+    systemctl reload "php${php_ver}-fpm" 2>/dev/null || true
+    success "harden-fpm uygulandı: ${domain}"
+    log_action "harden-fpm apply: ${domain}"
 }
