@@ -62,10 +62,18 @@ _domain_write_vhost() {
 
     rate_profile_load "$profile"
 
-    # Hassas yollar: meta override yoksa varsayılan
+    # Hassas yollar: meta override yoksa varsayılan.
+    # Meta web kullanıcısı tarafından yazılabildiğinden değer GÜVENİLMEZ:
+    # nginx token charset'ine uymuyorsa (boşluk, {, }, ; ...) varsayılana düş.
     local sensitive="${DEFAULT_SENSITIVE_PATHS}"
     read_meta "$domain"
-    [[ -n "${SENSITIVE_PATHS:-}" ]] && sensitive="${SENSITIVE_PATHS}"
+    if [[ -n "${SENSITIVE_PATHS:-}" ]]; then
+        if assert_regex_safe "${SENSITIVE_PATHS}"; then
+            sensitive="${SENSITIVE_PATHS}"
+        else
+            warn "Geçersiz SENSITIVE_PATHS (${domain}) — varsayılan hassas yollar kullanılıyor"
+        fi
+    fi
 
     render_template "$tpl" \
         "DOMAIN=${domain}" \
