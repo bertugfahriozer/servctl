@@ -22,10 +22,12 @@ _security_run_check() {
 cmd_security() {
     require_root
     case "${1:-help}" in
-        audit) _security_audit ;;
+        audit)     _security_audit ;;
+        harden-fs) _security_harden_fs "${@:2}" ;;
         *)
             echo ""
             echo "  Kullanım: srvctl security audit"
+            echo "            srvctl security harden-fs <domain>|--all [--apply|--revert]"
             echo ""
             ;;
     esac
@@ -268,4 +270,47 @@ _security_audit() {
     echo ""
 
     log_action "SECURITY AUDIT: pass=${pass} fail=${fail} warn=${warn_count} score=${score}/100"
+}
+
+# ─── Dosya-sahiplik sertleştirme (T1) ───
+# Kullanım: harden-fs <domain>|--all [--apply|--revert]  (varsayılan: dry-run)
+_security_harden_fs() {
+    local domain="" mode="dry" all=false arg
+    for arg in "$@"; do
+        case "$arg" in
+            --apply)  mode="apply" ;;
+            --revert) mode="revert" ;;
+            --all)    all=true ;;
+            -*)       error "Bilinmeyen seçenek: ${arg}" ;;
+            *)        domain="$arg" ;;
+        esac
+    done
+    local targets=() d
+    if $all; then
+        mapfile -t targets < <(list_all_domains)
+    else
+        [[ -z "$domain" ]] && error "Kullanım: srvctl security harden-fs <domain>|--all [--apply|--revert]"
+        targets=("$domain")
+    fi
+    for d in "${targets[@]}"; do
+        case "$mode" in
+            dry)    _harden_fs_dry "$d" ;;
+            apply)  _harden_fs_apply "$d" ;;
+            revert) _harden_fs_revert "$d" ;;
+        esac
+    done
+}
+
+# Dry-run: hedef modeli + mevcut durumu yaz, hiçbir şeye dokunma.
+_harden_fs_dry() {
+    local domain="$1" base="${WEB_ROOT}/${1}" web_user
+    web_user="web_$(safe_name "$domain")"
+    domain_exists "$domain" || { warn "Domain yok: ${domain}" >&2; return 0; }
+    echo "  ── ${domain} (dry-run; uygulamak için --apply) ──"
+    local path owner mode
+    while IFS='|' read -r path owner mode; do
+        [[ -e "$path" ]] || continue
+        printf '    %s -> %s:%s %s  (mevcut: %s %s)\n' \
+            "$path" "$owner" "$owner" "$mode" "$(_stat_owner "$path")" "$(_stat_mode "$path")"
+    done < <(_domain_fs_plan "$base" "$web_user")
 }
