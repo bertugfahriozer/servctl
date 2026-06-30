@@ -51,6 +51,12 @@ _domain_write_vhost() {
     local sites="${SITES_AVAILABLE:-/etc/nginx/sites-available}"
     local sname
     sname=$(safe_name "$domain")
+    # php_version sink-doğrulama (T2 residual): .credentials'tan gelen tainted
+    # PHP_VERSION nginx vhost'una enjekte olmasın; geçersizse DEFAULT'a düş.
+    if ! assert_php_version "$php_version"; then
+        warn "Geçersiz PHP sürümü '${php_version}' — '${DEFAULT_PHP_VERSION}' kullanılıyor"
+        php_version="${DEFAULT_PHP_VERSION}"
+    fi
     local tpl="${SRVCTL_TEMPLATES}/nginx/vhost.conf.tpl"
     [[ "$mode" == "ssl" ]] && tpl="${SRVCTL_TEMPLATES}/nginx/vhost-ssl.conf.tpl"
 
@@ -892,6 +898,8 @@ _domain_php_switch() {
     local PHP_VERSION="${DEFAULT_PHP_VERSION}"
     read_credentials "$domain"
     local old_ver="${PHP_VERSION:-${DEFAULT_PHP_VERSION}}"
+    # old_ver .credentials'tan geliyor (untrusted); sed/systemctl'e gitmeden doğrula.
+    assert_php_version "$old_ver" || old_ver="${DEFAULT_PHP_VERSION}"
     [[ "$old_ver" == "$new_ver" ]] && { info "Domain zaten PHP ${new_ver} kullanıyor."; return; }
 
     local old_pool="/etc/php/${old_ver}/fpm/pool.d/${sname}.conf"

@@ -24,5 +24,12 @@ _domain_write_vhost example.com 8.3 relaxed http
 conf=$(cat "${SITES_AVAILABLE}/example.com.conf")
 assert_contains "$conf" 'location ~ ^/(admin|backend) {' "meta sensitive override"
 
+# T2 residual: .credentials'tan gelen tainted php_version nginx config'ine
+# enjekte olmamalı; geçersizse DEFAULT_PHP_VERSION'a düşmeli.
+_domain_write_vhost example.com '8.3; } location /pwn {' relaxed http
+conf=$(cat "${SITES_AVAILABLE}/example.com.conf")
+assert_not_contains "$conf" 'location /pwn {'              "tainted php_version enjekte edilmedi"
+assert_contains     "$conf" "php${DEFAULT_PHP_VERSION}-fpm" "geçersiz php_version DEFAULT'a düştü"
+
 rm -rf "$WEB_ROOT" "$SITES_AVAILABLE"
 test_summary
