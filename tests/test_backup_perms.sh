@@ -23,5 +23,14 @@ echo "dummy-sql" > "${run_dir}/db_x.sql.gz"
 _backup_secure_artifact "${run_dir}/db_x.sql.gz"
 assert_eq "$(_stat_mode "${run_dir}/db_x.sql.gz")" "600" "artefakt 0600"
 
+# ── safe_extract entegrasyonu: _backup_restore güvenli tar kullanıyor mu? ──
+# Crafted ../ üyeli arşiv safe_extract tarafından reddedilmeli.
+dotdot_stage="${WEB_ROOT}/esc_stage"; mkdir -p "$dotdot_stage"; echo "kotu" > "${dotdot_stage}/a"
+dotdot_tgz="${run_dir}/evil-files.tar.gz"
+( cd "$dotdot_stage" && tar -czf "$dotdot_tgz" "../esc_stage/a" )
+dotdot_dest="${WEB_ROOT}/dest_dotdot"; mkdir -p "$dotdot_dest"
+assert_fail safe_extract "$dotdot_tgz" "$dotdot_dest"
+assert_eq "$(find "$dotdot_dest" -type f | wc -l | tr -d ' ')" "0" "dotdot: hedefe hic yazilmadi"
+
 rm -rf "$WEB_ROOT" "$(dirname "$BACKUP_DIR")"
 test_summary

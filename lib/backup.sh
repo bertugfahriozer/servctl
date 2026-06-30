@@ -100,7 +100,7 @@ _backup_run() {
     local redis_admin_pass
     redis_admin_pass=$(grep "^REDIS_ADMIN_PASS=" "${SRVCTL_CONF}" 2>/dev/null | cut -d= -f2)
     if [[ -n "$redis_admin_pass" ]]; then
-        redis-cli --user admin --pass "$redis_admin_pass" BGSAVE 2>/dev/null || true
+        REDISCLI_AUTH="$redis_admin_pass" redis-cli --user admin BGSAVE 2>/dev/null || true
         sleep 2
     fi
     cp /var/lib/redis/dump.rdb "${backup_path}/redis.rdb" 2>/dev/null || true
@@ -211,7 +211,7 @@ _backup_restore() {
         local domain
         domain=$(basename "$tar_gz" -files.tar.gz)
         step "FILES" "Geri yükleniyor: ${domain}"
-        tar xzf "$tar_gz" -C / 2>/dev/null && \
+        safe_extract "$tar_gz" / && \
             success "Dosyalar geri yüklendi: ${domain}" || \
             warn "Dosya geri yükleme hatası: ${domain}"
     done
