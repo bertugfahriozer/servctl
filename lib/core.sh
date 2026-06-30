@@ -64,6 +64,19 @@ load_config
 
 # ─── Yardımcı Fonksiyonlar ───
 
+# ─── Portable stat sarmalayıcıları (GNU -c / BSD -f) ───
+# macOS geliştirme kutusunda GNU stat yoktur; ikisini de dene.
+
+# Bir yolun sahibinin kullanıcı adını yaz
+_stat_owner() {
+    stat -c '%U' "$1" 2>/dev/null || stat -f '%Su' "$1"
+}
+
+# Bir yolun octal izinlerini yaz
+_stat_mode() {
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 # Root kontrolü
 require_root() {
     if [[ $EUID -ne 0 ]]; then
