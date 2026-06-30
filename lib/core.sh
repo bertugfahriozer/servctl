@@ -431,7 +431,8 @@ read_meta() {
 write_meta() {
     local domain="$1" key="$2" value="$3"
     local meta_file="${WEB_ROOT}/${domain}/.srvctl-meta"
-    # Mevcut anahtarı çıkar (varsa), sonra %q-escape'li olarak yeniden ekle.
+    # Mevcut anahtarı çıkar (varsa), sonra TIRNAKSIZ (%s=%s) yeniden ekle —
+    # read_kv_file verbatim okur (source/eval yok), bu yüzden %q gerekmez.
     # sed yerine grep-filtre: keyfi değerlerde (| & \ vb.) ve BSD/GNU sed farkında güvenli.
     if [[ -f "$meta_file" ]]; then
         grep -v "^${key}=" "$meta_file" > "${meta_file}.tmp" 2>/dev/null || true
