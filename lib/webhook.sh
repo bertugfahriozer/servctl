@@ -11,6 +11,34 @@
 WEBHOOK_PORT="${WEBHOOK_PORT:-9443}"
 WEBHOOK_PID_FILE="/var/run/srvctl-webhook.pid"
 WEBHOOK_LOG="/usr/local/srvctl/logs/webhook.log"
+# Listener yalnızca 127.0.0.1'e bağlanır (nginx arkasında); 9443 dışa açılmaz.
+WEBHOOK_BIND="${WEBHOOK_BIND:-127.0.0.1}"
+
+# _webhook_verify_sig <secret> <payload> <header_value>
+# GitHub X-Hub-Signature-256 doğrulaması (fail-closed).
+# 0 döner ANCAK header dolu VE 'sha256='+HMAC-SHA256(secret,payload)'a eşitse.
+# Eksik/boş header, boş secret veya yanlış imza → 1. Çıkış/çıktı yapmaz.
+_webhook_verify_sig() {
+    local secret="$1" payload="$2" header="$3"
+    # Secret yoksa veya header boşsa fail-closed
+    [[ -z "$secret" ]] && return 1
+    [[ -z "$header" ]] && return 1
+
+    local expected
+    expected="sha256=$(printf '%s' "$payload" \
+        | openssl dgst -sha256 -hmac "$secret" 2>/dev/null \
+        | awk '{print $NF}')"
+    # Hesaplama başarısız olduysa (boş hash) reddet
+    [[ "$expected" == "sha256=" ]] && return 1
+
+    # Sabit-zamanlı karşılaştırma: her iki dizgenin SHA-256'sını al,
+    # böylece uzunluk farkı ve byte-byte erken-çıkış sızıntısı olmaz.
+    local h_recv h_exp
+    h_recv="$(printf '%s' "$header"   | openssl dgst -sha256 | awk '{print $NF}')"
+    h_exp="$(printf '%s' "$expected"  | openssl dgst -sha256 | awk '{print $NF}')"
+    [[ "$h_recv" == "$h_exp" ]] && return 0
+    return 1
+}
 
 cmd_webhook() {
     require_root
