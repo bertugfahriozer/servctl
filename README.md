@@ -58,8 +58,17 @@ sudo srvctl domain add example.com --php=8.3
 ```bash
 sudo srvctl init        # Tek seferlik kurulum (12 + gelişmiş katman)
 sudo srvctl status      # Durum özeti
-sudo srvctl security audit   # Güvenlik denetimi (skor/100)
+sudo srvctl security audit            # Güvenlik denetimi (skor/100)
+sudo srvctl security harden-fs <d>    # Dosya-sahiplik modelini ÖNİZLE (dry-run)
+sudo srvctl security harden-fs <d> --apply   # uygula | --revert geri al | --all tümü
 ```
+
+> **Dosya-sahiplik modeli (Faz 2/T1):** Her domain'in base dizini (`/var/www/<domain>/`)
+> `root:root 751`'dir; web kullanıcısı yalnız yazması gereken alt dizinlere (public_html,
+> private/writable, tmp, sessions, logs) sahiptir. Böylece `.credentials`/`.srvctl-meta`/
+> `.deploy-repo` web kullanıcısı tarafından silinip-değiştirilemez (RC1 kapalı). Eski
+> kurulumlardaki domain'leri yeni modele taşımak için `security harden-fs` kullanın
+> (önce `dry-run` ile önizleyin).
 
 ### Domain — Temel
 ```bash

@@ -48,7 +48,7 @@ _srvctl_completions() {
             COMPREPLY=($(compgen -W "renew status" -- "$cur"))
             ;;
         security)
-            COMPREPLY=($(compgen -W "audit" -- "$cur"))
+            COMPREPLY=($(compgen -W "audit harden-fs" -- "$cur"))
             ;;
         monitor)
             COMPREPLY=($(compgen -W "live domains uptime check traffic" -- "$cur"))

@@ -67,7 +67,7 @@ _srvctl() {
                     _describe 'ssl işlemi' ssl_cmds
                     ;;
                 security)
-                    _describe 'güvenlik işlemi' '(audit:Tam güvenlik denetimi)'
+                    _describe 'güvenlik işlemi' '(audit:Tam güvenlik denetimi harden-fs:Dosya-sahiplik modelini uygula/önizle)'
                     ;;
                 monitor)
                     local -a mon_cmds
