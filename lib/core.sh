@@ -45,6 +45,20 @@ divider() {
     echo -e "  ${DIM}───────────────────────────────────────────────${NC}"
 }
 
+# ─── Girdi Doğrulayıcıları (PREDIKAT: 0=geçerli 1=geçersiz; çıktı YOK, exit YOK) ───
+# Çağıran taraf karar verir:  validate_x "$v" || error "..."
+# NOT: validate_uint, load_config'de kaynak-zamanı çağrısından ÖNCE tanımlanmalıdır.
+
+# İşaretsiz tamsayı; opsiyonel üst sınır
+validate_uint() {
+    local v="$1" max="${2:-}"
+    [[ "$v" =~ ^[0-9]+$ ]] || return 1
+    if [[ -n "$max" ]]; then
+        (( v <= max )) || return 1
+    fi
+    return 0
+}
+
 # ─── Yapılandırma ───
 load_config() {
     if [[ -f "$SRVCTL_CONF" ]]; then
@@ -60,10 +74,8 @@ load_config() {
     DEPLOYER_USER="${DEPLOYER_USER:-deployer}"
 
     # Doğrulama (sshd/ufw/fail2ban ve tüm domain yollarının kaynağı — fail-closed).
-    # validate_uint Foundation'da tanımlı; tanımlı değilse (kaynak sırası) atla.
-    if declare -F validate_uint >/dev/null 2>&1; then
-        validate_uint "$SSH_PORT" 65535 || error "Geçersiz SSH_PORT: ${SSH_PORT} (1-65535 arası tam sayı)"
-    fi
+    # validate_uint her zaman tanımlıdır (yukarıda load_config'den önce tanımlandı).
+    validate_uint "$SSH_PORT" 65535 || error "Geçersiz SSH_PORT: ${SSH_PORT} (1-65535 arası tam sayı)"
     [[ "$WEB_ROOT" == /* ]] || error "Geçersiz WEB_ROOT: ${WEB_ROOT} (mutlak yol olmalı)"
 }
 
@@ -84,8 +96,7 @@ _stat_mode() {
     stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
-# ─── Girdi Doğrulayıcıları (PREDIKAT: 0=geçerli 1=geçersiz; çıktı YOK, exit YOK) ───
-# Çağıran taraf karar verir:  validate_x "$v" || error "..."
+# ─── Geri kalan doğrulayıcılar ───
 
 # Domain adı: harf/rakam ile başlar-biter, içeride .-, '..'/'/'/baştaki nokta yok, ≤253
 validate_domain() {
@@ -149,16 +160,6 @@ validate_ip_or_cidr() {
     fi
     if [[ -n "$prefix" ]]; then
         (( prefix <= max )) || return 1
-    fi
-    return 0
-}
-
-# İşaretsiz tamsayı; opsiyonel üst sınır
-validate_uint() {
-    local v="$1" max="${2:-}"
-    [[ "$v" =~ ^[0-9]+$ ]] || return 1
-    if [[ -n "$max" ]]; then
-        (( v <= max )) || return 1
     fi
     return 0
 }
