@@ -61,6 +61,23 @@ _health_probe() {
     echo "${code:-000}"
 }
 
+# Repo URL güvenlik kapısı (PREDIKAT: 0=güvenli 1=güvensiz; exit YOK).
+# .deploy-repo web-kullanıcısına ait dizinde olabildiğinden içeriği GÜVENİLMEZ.
+# Yalnız https://, ssh://, git@host:path şemaları; ext::/fd::/file:: transport
+# helper'ları (git RCE vektörü), baştaki '-' (option-injection), boşluk/'::' reddedilir.
+_deploy_validate_repo_url() {
+    local url="$1"
+    [[ -n "$url" ]] || return 1
+    [[ "$url" == -* ]] && return 1
+    [[ "$url" =~ [[:space:]] ]] && return 1
+    [[ "$url" == *"::"* ]] && return 1
+    [[ "$url" == file://* ]] && return 1
+    [[ "$url" =~ ^https://[A-Za-z0-9._~:/@%?=\&-]+$ ]] && return 0
+    [[ "$url" =~ ^ssh://[A-Za-z0-9._~:/@%-]+$ ]] && return 0
+    [[ "$url" =~ ^git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+$ ]] && return 0
+    return 1
+}
+
 # ───────────────────────────────────────────────────────────────
 #  deploy <domain> [branch] [--dry-run]
 # ───────────────────────────────────────────────────────────────
@@ -105,10 +122,17 @@ _deploy_run() {
         info "Repo kaydedildi: ${repo_file}"
     fi
 
+    # Güvenlik: web-yazılabilir .deploy-repo'dan gelen URL'yi ve branch'i clone'dan
+    # önce doğrula (ext::/file:: git RCE + option-injection reddi).
+    _deploy_validate_repo_url "$repo_url" \
+        || error "Güvensiz repo URL'si reddedildi: ${repo_url} (yalnız https://, ssh://, git@host:path)"
+    [[ "$branch" =~ ^[A-Za-z0-9._/-]+$ && "$branch" != -* ]] \
+        || error "Geçersiz branch adı: ${branch}"
+
     # 1. Clone
     step "1/7" "Git clone (branch: ${branch})..."
     mkdir -p "${base}/releases"
-    git clone --depth 1 --branch "${branch}" "${repo_url}" "${release_dir}" 2>/dev/null \
+    GIT_ALLOW_PROTOCOL='https:ssh:git' git clone --depth 1 --branch "${branch}" -- "${repo_url}" "${release_dir}" 2>/dev/null \
         || error "Git clone başarısız. Repo URL'si ve branch'i kontrol edin."
     success "Clone tamamlandı"
 
