@@ -25,12 +25,12 @@ systemctl is-active srvctl-fpm-test_example_com.service
 # Beklenen: active
 
 # AppArmor enforce modda mı?
-aa-status | grep srvctl-fpm-test_example_com
+aa-status | grep 'srvctl-test_example_com'
 # Beklenen: enforce satırı görünür
 
 # cgroups slice altında mı çalışıyor?
 systemctl show srvctl-fpm-test_example_com.service -p ControlGroup
-# Beklenen: /srvctl.slice/srvctl-fpm-test_example_com.service
+# Beklenen: /srvctl.slice/srvctl-test_example_com.slice/srvctl-fpm-test_example_com.service
 ```
 
 ---
@@ -38,12 +38,21 @@ systemctl show srvctl-fpm-test_example_com.service -p ControlGroup
 ## 2. AppArmor gerçekten kısıtlıyor (/etc/shadow deny)
 
 ```bash
-# FPM worker kullanıcısı olarak /etc/shadow okuma denemesi
-sudo -u web_test_example_com cat /etc/shadow
-# Beklenen: "Permission denied" (AppArmor bloğu)
+# PHP üzerinden /etc/shadow okuma denemesi (HTTP isteği ile)
+# NOT: 'sudo -u web_test_example_com cat /etc/shadow' yalnızca DAC reddi verir
+# (shadow 640 root:shadow) — AppArmor'ı doğrulamaz. Gerçek test HTTP üzerinden
+# PHP-FPM process'inin AppArmorProfile= kapsamında çalıştığını kanıtlar.
 
-# audit.log'da deny kaydı görülür
-grep 'DENIED' /var/log/audit/audit.log | grep shadow | tail -3
+echo '<?php echo file_get_contents("/etc/shadow");' > /var/www/test.example.com/public_html/aa-test.php
+curl -sk https://test.example.com/aa-test.php
+# Beklenen: boş yanıt veya hata (shadow içeriği görünmemeli)
+
+# audit.log'da AppArmor DENIED kaydı görülür
+grep 'DENIED' /var/log/audit/audit.log | grep 'shadow' | tail -3
+# Beklenen: php-fpm process'i için DENIED satırı
+
+# Test dosyasını temizle
+rm /var/www/test.example.com/public_html/aa-test.php
 ```
 
 ---
