@@ -258,14 +258,14 @@ list_all_domains() {
     done
 }
 
-# Credentials dosyasını oku
+# Credentials dosyasını oku (source DEĞİL — katı parse)
 read_credentials() {
     local domain="$1"
     local creds_file="${WEB_ROOT}/${domain}/.credentials"
-    if [[ -f "$creds_file" ]]; then
-        # shellcheck disable=SC1090
-        source "$creds_file"
-    fi
+    read_kv_file "$creds_file" \
+        DOMAIN SAFE_NAME WEB_USER PHP_VERSION \
+        DB_NAME DB_USER DB_PASS \
+        REDIS_USER REDIS_PASS REDIS_PREFIX
 }
 
 # ─── Rate-Limit Profilleri ───
@@ -319,13 +319,10 @@ rate_profile_load() {
 
 # ─── Per-Domain Meta (sır değil) ───
 
-# Domain meta dosyasını oku → RATE_PROFILE, SENSITIVE_PATHS değişkenlerine
+# Domain meta dosyasını oku (source DEĞİL — katı parse)
 read_meta() {
     local meta_file="${WEB_ROOT}/${1}/.srvctl-meta"
-    if [[ -f "$meta_file" ]]; then
-        # shellcheck disable=SC1090
-        source "$meta_file"
-    fi
+    read_kv_file "$meta_file" RATE_PROFILE SENSITIVE_PATHS
 }
 
 # Meta dosyasına key=value ekle/güncelle (yoksa oluştur)
@@ -338,7 +335,7 @@ write_meta() {
         grep -v "^${key}=" "$meta_file" > "${meta_file}.tmp" 2>/dev/null || true
         mv "${meta_file}.tmp" "$meta_file"
     fi
-    printf '%s=%q\n' "$key" "$value" >> "$meta_file"
+    printf '%s=%s\n' "$key" "$value" >> "$meta_file"
     chmod 644 "$meta_file" 2>/dev/null || true
     chown root:root "$meta_file" 2>/dev/null || true
 }
