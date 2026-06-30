@@ -404,7 +404,8 @@ _domain_add() {
 
     # Parolayı argv'den uzak tut: SQL stdin heredoc ile beslenir (ps/cmdline'da sır görünmez).
     # Root kimliği /root/.my.cnf'ten gelir (0600 root:root).
-    mysql << SQL
+    # --force: yeni kullanıcıda REVOKE ALL PRIVILEGES hata verse bile sonraki SQL'ler çalışır.
+    mysql --force << SQL
 CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_pass}';
 REVOKE ALL PRIVILEGES ON *.* FROM '${db_user}'@'localhost';
