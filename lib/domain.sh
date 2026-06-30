@@ -69,6 +69,27 @@ _domain_fs_plan() {
     done
 }
 
+# Mevcut sahiplik/izinleri kaydet (revert güvenlik ağı). Satır: "<path> <owner> <mode>".
+_fs_record_before() {
+    local base="$1" out="$2" p
+    : > "$out"
+    printf '%s %s %s\n' "$base" "$(_stat_owner "$base")" "$(_stat_mode "$base")" >> "$out"
+    for p in "$base"/* "$base"/.credentials "$base"/.srvctl-meta "$base"/.deploy-repo; do
+        [[ -e "$p" ]] || continue
+        printf '%s %s %s\n' "$p" "$(_stat_owner "$p")" "$(_stat_mode "$p")" >> "$out"
+    done
+}
+
+# Kayıttan geri yükle (chown/chmod — gerçek etki [HOST]).
+_fs_revert() {
+    local rec="$1" path owner mode
+    while read -r path owner mode; do
+        [[ -e "$path" ]] || continue
+        chown "${owner}:${owner}" "$path" 2>/dev/null || true
+        chmod "$mode" "$path" 2>/dev/null || true
+    done < "$rec"
+}
+
 # vhost config'i seçili profil + meta ile üret ve yaz.
 # mode: "http" → vhost.conf.tpl, "ssl" → vhost-ssl.conf.tpl
 # SITES_AVAILABLE env'i test için override edilebilir (varsayılan /etc/nginx/sites-available).
