@@ -72,10 +72,13 @@ rlimit_core = 0
 clear_env = yes
 
 ; ─── Loglama ───
+; NOT: access.log ve slowlog POOL direktifleridir; php-fpm MASTER (chroot DIŞI)
+; tarafından açılır → GERÇEK yol olmalı (chroot-relative /logs master'da bulunamaz).
+; mail.log php_admin_value'dur (worker/chroot içi) → chroot-relative kalır.
 php_admin_value[mail.log] = /logs/php-mail.log
-access.log = /logs/php-access.log
+access.log = {{WEB_ROOT}}/{{DOMAIN}}/logs/php-access.log
 access.format = "%R - %u %t \"%m %r\" %s %f %{mili}d %{kilo}M %C%%"
 
 ; ─── Slowlog (yavaş sorguları yakala) ───
-slowlog = /logs/php-slow.log
+slowlog = {{WEB_ROOT}}/{{DOMAIN}}/logs/php-slow.log
 request_slowlog_timeout = 5s

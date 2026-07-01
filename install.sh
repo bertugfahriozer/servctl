@@ -93,6 +93,9 @@ elif [[ ! -f "${INSTALL_DIR}/conf/srvctl.conf" ]]; then
     cp "${SCRIPT_DIR}/conf/srvctl.conf" "${INSTALL_DIR}/conf/srvctl.conf"
 fi
 
+# rate-profiles.conf VERİ dosyasıdır (kullanıcı config'i değil) — her kurulumda güncellenir.
+cp "${SCRIPT_DIR}/conf/rate-profiles.conf" "${INSTALL_DIR}/conf/rate-profiles.conf" 2>/dev/null || true
+
 # ─── 3. Symlink ───
 echo -e "  ${CYAN}[3/5]${NC} PATH'e ekleniyor..."
 ln -sf "${INSTALL_DIR}/bin/srvctl" /usr/local/bin/srvctl

@@ -465,12 +465,10 @@ REDISCONF
     # ACL dosyası (umask 077 — parola world-readable olmasın)
     (
         umask 077
+        # NOT: aclfile YORUM (#) ve boş satır KABUL ETMEZ (redis "should start with
+        # user keyword" ile başlatmayı iptal eder). Yalnız 'user ...' satırları yaz.
         cat > /etc/redis/users.acl << REDISACL
-# srvctl Redis ACL
-# Admin kullanıcısı — sadece sunucu yönetimi
 user admin on >${redis_admin_pass} ~* &* +@all
-
-# Default kullanıcıyı devre dışı bırak
 user default off nopass ~* &* -@all
 REDISACL
     )
