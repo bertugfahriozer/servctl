@@ -260,7 +260,7 @@ _deploy_run() {
 #  deploy rollback <domain>  /  srvctl rollback <domain>
 # ───────────────────────────────────────────────────────────────
 _deploy_rollback() {
-    local domain="$1"
+    local domain="${1:-}"
     [[ -z "$domain" ]] && error "Kullanım: srvctl rollback <domain>"
     domain_exists "$domain" || error "Domain bulunamadı: ${domain}"
 

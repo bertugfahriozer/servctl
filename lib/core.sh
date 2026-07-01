@@ -135,7 +135,13 @@ assert_regex_safe() {
     [[ -n "$v" ]] || return 1
     [[ "$v" == *"{"* || "$v" == *"}"* || "$v" == *";"* ]] && return 1
     [[ "$v" =~ [[:space:]] ]] && return 1
-    [[ "$v" =~ ^[A-Za-z0-9_./\|-]+$ ]]
+    # Backslash'a da izin ver (regex escape'i; örn. DEFAULT_SENSITIVE_PATHS'teki
+    # 'wp-login\.php'). Tehlikeli nginx-config karakterleri ({ } ; boşluk) zaten
+    # yukarıda reddedildi. NOT: eski '[...\|...]' backslash'ı değil escape'li pipe'ı
+    # kabul ediyordu → default her zaman reddedilip "Geçersiz SENSITIVE_PATHS" uyarısı
+    # veriyordu. Char class'ta literal backslash için '\\', değişkenle veriyoruz.
+    local re='^[A-Za-z0-9_./|\\-]+$'
+    [[ "$v" =~ $re ]]
 }
 
 # Linux kullanıcı adı: [a-z_] ile başlar, [a-z0-9_-], ≤32
