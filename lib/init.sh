@@ -591,6 +591,21 @@ _setup_cron_jobs() {
     if ! echo "$crontab_content" | grep -q "srvctl backup"; then
         (echo "$crontab_content"; echo "0 4 * * * /usr/local/srvctl/bin/srvctl backup run >> /usr/local/srvctl/logs/backup.log 2>&1") | crontab -
     fi
+
+    # ─── Güvenilir edge-IP senkronu (Cloudflare + UptimeRobot) ───
+    if [[ "${TRUSTED_SYNC_ENABLED:-true}" == "true" ]]; then
+        crontab_content=$(crontab -l 2>/dev/null || true)
+        if ! echo "$crontab_content" | grep -q "srvctl trusted sync"; then
+            (echo "$crontab_content"; echo "30 2 * * * /usr/local/srvctl/bin/srvctl trusted sync >> /usr/local/srvctl/logs/trusted.log 2>&1") | crontab -
+        fi
+        # İlk senkron (ağ yoksa uyar-devam; init'i düşürme)
+        # shellcheck disable=SC1090
+        if source "${SRVCTL_ROOT}/lib/trusted.sh" 2>/dev/null && _trusted_sync >/dev/null 2>&1; then
+            success "Güvenilir edge-IP listesi senkronize edildi"
+        else
+            warn "İlk güvenilir-IP senkronu yapılamadı (ağ?) — cron sonraki turda tazeleyecek"
+        fi
+    fi
 }
 
 _create_deployer_user() {

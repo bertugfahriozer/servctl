@@ -10,7 +10,7 @@ _srvctl_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Ana komutlar
-    commands="init domain deploy backup ssl security status monitor notify cloudflare ip user plugin webhook changelog version help"
+    commands="init domain deploy backup ssl security status monitor notify cloudflare ip trusted user plugin webhook changelog version help"
 
     # 1. seviye
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -80,6 +80,12 @@ _srvctl_completions() {
                     whitelist|blacklist) COMPREPLY=($(compgen -W "add remove" -- "$cur")) ;;
                     geoblock)            COMPREPLY=($(compgen -W "add remove list" -- "$cur")) ;;
                 esac
+            fi
+            ;;
+        trusted)
+            local trusted_cmds="sync list"
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "$trusted_cmds" -- "$cur"))
             fi
             ;;
         user)

@@ -73,6 +73,14 @@ load_config() {
     BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
     DEPLOYER_USER="${DEPLOYER_USER:-deployer}"
 
+    # ─── Güvenilir edge-IP senkronu (Cloudflare + UptimeRobot) ───
+    TRUSTED_SYNC_ENABLED="${TRUSTED_SYNC_ENABLED:-true}"
+    TRUSTED_SOURCES="${TRUSTED_SOURCES:-cloudflare uptimerobot}"
+    TRUSTED_STATE_DIR="${TRUSTED_STATE_DIR:-/etc/srvctl/trusted}"
+    CLOUDFLARE_IPS_V4_URL="${CLOUDFLARE_IPS_V4_URL:-https://www.cloudflare.com/ips-v4}"
+    CLOUDFLARE_IPS_V6_URL="${CLOUDFLARE_IPS_V6_URL:-https://www.cloudflare.com/ips-v6}"
+    UPTIMEROBOT_IPS_URL="${UPTIMEROBOT_IPS_URL:-https://uptimerobot.com/inc/files/ips/IPv4andIPv6.txt}"
+
     # Doğrulama (sshd/ufw/fail2ban ve tüm domain yollarının kaynağı — fail-closed).
     # validate_uint her zaman tanımlıdır (yukarıda load_config'den önce tanımlandı).
     validate_uint "$SSH_PORT" 65535 || error "Geçersiz SSH_PORT: ${SSH_PORT} (1-65535 arası tam sayı)"

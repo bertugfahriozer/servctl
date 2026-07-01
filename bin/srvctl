@@ -50,6 +50,7 @@ case "${1:-help}" in
     notify)     _load_and_run notify cmd_notify "${@:2}" ;;
     cloudflare|cf) _load_and_run cloudflare cmd_cloudflare "${@:2}" ;;
     ip)         _load_and_run ip cmd_ip "${@:2}" ;;
+    trusted)    _load_and_run trusted cmd_trusted "${@:2}" ;;
     user)       _load_and_run user cmd_user "${@:2}" ;;
     plugin)     _load_and_run plugin cmd_plugin "${@:2}" ;;
     webhook)    _load_and_run webhook cmd_webhook "${@:2}" ;;

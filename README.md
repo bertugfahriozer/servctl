@@ -174,6 +174,22 @@ sudo srvctl cloudflare ddos on example.com     # Under Attack modu
 sudo srvctl cloudflare status example.com
 ```
 
+### Güvenilir edge-IP senkronu (`srvctl trusted`)
+
+Cloudflare ve UptimeRobot'un yayınladığı IP'leri otomatik allowlist'e ekler:
+fail2ban `ignoreip` (bu IP'ler asla banlanmaz) + Cloudflare için nginx real-IP
+restorasyonu (`set_real_ip_from` + `CF-Connecting-IP`). `srvctl init` günlük
+cron kurar (`30 2 * * *`, default açık). Fetch başarısızsa son-iyi liste korunur.
+
+| Komut | Açıklama |
+|-------|----------|
+| `srvctl trusted sync` | IP'leri şimdi çek + uygula |
+| `srvctl trusted list` | Yönetilen IP'leri ve son senkronu göster |
+
+Yapılandırma (conf/srvctl.conf, varsayılanlar load_config'te):
+`TRUSTED_SYNC_ENABLED`, `TRUSTED_SOURCES`, `CLOUDFLARE_IPS_V4_URL`,
+`CLOUDFLARE_IPS_V6_URL`, `UPTIMEROBOT_IPS_URL`.
+
 ### Kullanıcı Yönetimi (RBAC + 2FA)
 ```bash
 sudo srvctl user add ali --role=developer      # admin | developer | viewer
@@ -271,6 +287,7 @@ sudo srvctl security audit                                         # skor ≥ 90
 |-----------|-------|
 | `0 3,15 * * *` | SSL yenileme |
 | `0 4 * * *`    | Günlük yedekleme |
+| `30 2 * * *`   | Güvenilir edge-IP senkronu |
 | `30 5 * * *`   | AIDE bütünlük kontrolü |
 | `0 6 * * *`    | ClamAV upload taraması |
 
