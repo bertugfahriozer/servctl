@@ -1,0 +1,40 @@
+# ═══════════════════════════════════════════════
+#  srvctl — .gitignore
+# ═══════════════════════════════════════════════
+
+# ─── İşletim sistemi artefaktları ───
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ─── Editör / IDE ───
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ─── Araç yerel durumu (paylaşılmaz) ───
+.claude/
+.superpowers/
+
+# ─── Çalışma zamanı / üretilen dosyalar ───
+# Gerçek kurulumda bunlar repo DIŞINDA (/usr/local/srvctl, /var/www) tutulur;
+# yanlışlıkla commit'lenmelerini önlemek için savunma amaçlı ignore edilir.
+# NOT: conf/srvctl.conf ve conf/rate-profiles.conf İZLENİR (varsayılan template);
+# gerçek sırlı conf /usr/local/srvctl/conf altında, repo dışında.
+*.log
+logs/
+*.bak
+*.tmp
+*.tar.gz
+*.tgz
+
+# ─── Sırlar — ASLA commit'lenmemeli ───
+.credentials
+**/.credentials
+**/.srvctl-meta
