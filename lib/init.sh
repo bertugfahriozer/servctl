@@ -231,6 +231,12 @@ worker_processes auto;
 worker_rlimit_nofile 65535;
 pid /run/nginx.pid;
 
+# Dinamik modülleri yükle (ModSecurity, GeoIP vb.) — paketlerin
+# /etc/nginx/modules-enabled/ altına bıraktığı load_module conf'ları. Bu satır
+# olmadan 'modsecurity'/'geoip_country' direktifleri "unknown directive" verip
+# nginx -t'yi patlatır (domain add step 5'te abort). Stok Ubuntu nginx.conf'ta var.
+include /etc/nginx/modules-enabled/*.conf;
+
 events {
     worker_connections 4096;
     multi_accept on;
