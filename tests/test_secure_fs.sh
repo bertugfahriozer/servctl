@@ -21,6 +21,13 @@ f3="${WEB_ROOT}/loose.cred"; : > "$f3"; chmod 666 "$f3"
 secure_file "$f3"
 assert_eq "$(_stat_mode "$f3" | tail -c 4)" "600" "secure_file gevşek modu sıkılaştırır"
 
+# REGRESYON: secure_file MEVCUT İÇERİĞİ KORUMALI (truncate ETMEMELİ) —
+# aksi halde /root/.my.cnf, yedek artefaktları, migrate credentials boşalır.
+f4="${WEB_ROOT}/withdata.cred"; printf 'DB_PASS=gizli123\nX=y\n' > "$f4"
+secure_file "$f4" 600
+assert_eq "$(cat "$f4")" "$(printf 'DB_PASS=gizli123\nX=y')" "secure_file içeriği korur (truncate etmez)"
+assert_eq "$(_stat_mode "$f4" | tail -c 4)" "600" "içerikli dosyada da mod 600"
+
 # secure_dir: yoksa oluşturur, varsayılan 700
 d="${WEB_ROOT}/vault"
 assert_ok secure_dir "$d"
