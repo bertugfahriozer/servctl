@@ -10,6 +10,7 @@
 
 ## Global Constraints
 
+- **Hedef OS: Ubuntu 22.04 VE 24.04.** Bu özellik yalnız sürüm-agnostik araçlar kullanır (curl/sed/awk/grep/crontab, nginx `ngx_http_realip_module` — her iki sürümde built-in, fail2ban `ignoreip` — backend-agnostik) → 24.04'te birebir çalışır, sürüme-özel kod YOK. Apply fonksiyonları guard'lı: fail2ban/nginx kurulu değilse dosya yine yazılır, reload atlanır (minimal imaj/konteyner toleransı).
 - Tüm kullanıcı-görünür string ve yorumlar **Türkçe** (proje konvansiyonu).
 - Her script `set -euo pipefail` ile başlamaz — modüller core.sh tarafından source'lanır; testler `set -uo pipefail` kullanır (NO `-e`).
 - IP doğrulama için **yalnız** core.sh'teki mevcut `validate_ip_or_cidr <deger>` kullanılır (status: 0=geçerli, 1=geçersiz). Yeni validator yazma.
@@ -644,9 +645,11 @@ git commit -m "feat(trusted): init cron + ilk senkron entegrasyonu + README"
 
 ---
 
-## HOST doğrulama (macOS/OrbStack'te yapılamaz — Multipass/UTM 22.04 veya 24.04)
+## HOST doğrulama (macOS/OrbStack'te yapılamaz — Multipass/UTM'de 22.04 VE 24.04)
 
-Bu adımlar gerçek sunucuda elle doğrulanır (plan tamamlandıktan sonra):
+Bu adımlar gerçek sunucuda elle doğrulanır (plan tamamlandıktan sonra). **Hem 22.04 hem
+24.04'te** koşulmalı — özellikle 24.04'te fail2ban `ignoreip` ve nginx `realip` modülünün
+mevcut olduğu teyit edilmeli (ikisi de standart, ama 24.04 ilk-sınıf hedef):
 
 - [ ] `curl -sf https://www.cloudflare.com/ips-v4` gerçek CF listesini döndürüyor; `srvctl trusted sync` çalışıp `/etc/srvctl/trusted/cloudflare.conf` + `uptimerobot.conf` üretiyor.
 - [ ] **UptimeRobot URL teyidi:** `curl -sf "$UPTIMEROBOT_IPS_URL"` beklenen formatta (satır-başına IP) veri veriyor; vermezse conf'taki URL güncellenir.
