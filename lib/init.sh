@@ -317,6 +317,11 @@ _install_php() {
                 > /dev/null 2>&1 || warn "PHP ${ver} kurulumunda bazı paketler atlandı"
         fi
 
+        # Kurulmadıysa (örn. Ubuntu 24.04 default repo'da php8.2 YOK — ondrej PPA
+        # gerekir; PPA eklenemezse apt atlar) bu sürümü atla. Aksi halde alttaki
+        # 'cat > /etc/php/${ver}/...' dizin yokluğunda set -e ile init'i patlatır.
+        [[ -d "/etc/php/${ver}/fpm/conf.d" ]] || { warn "PHP ${ver} kurulu değil — atlanıyor"; continue; }
+
         # PHP güvenlik ayarları
         cat > "/etc/php/${ver}/fpm/conf.d/99-srvctl-security.ini" << 'PHPINI'
 expose_php = Off
