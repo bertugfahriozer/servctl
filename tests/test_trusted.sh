@@ -84,5 +84,8 @@ assert_eq "$(cat "${TRUSTED_STATE_DIR}/cloudflare.conf")" "$cf_before" "fetch bo
 # cmd_trusted help çalışır (exit 0)
 assert_ok cmd_trusted help
 
+# init.sh trusted cron + ilk senkronu içeriyor mu (yapısal)
+assert_contains "$(cat "${REPO_ROOT}/lib/init.sh")" "srvctl trusted sync" "init.sh trusted cron satırı içerir"
+
 rm -rf "$WORK"
 test_summary
