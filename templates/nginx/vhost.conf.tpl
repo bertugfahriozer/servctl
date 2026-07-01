@@ -60,7 +60,12 @@ server {
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
         fastcgi_pass unix:/run/php/php{{PHP_VERSION}}-fpm-{{SAFE_NAME}}.sock;
         fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # NOT: php-fpm chroot'lu (chroot = WEB_ROOT/DOMAIN; docroot chroot İÇİNDE
+        # /public_html). SCRIPT_FILENAME chroot-GÖRELİ olmalı — $document_root (host
+        # yolu) verilirse php-fpm chroot içinde bulamaz → "No input file specified"
+        # (hiçbir PHP çalışmaz). DOCUMENT_ROOT da chroot-içi yola set edilir.
+        fastcgi_param SCRIPT_FILENAME /public_html$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT /public_html;
         include fastcgi_params;
 
         # PHP bilgisini gizle
