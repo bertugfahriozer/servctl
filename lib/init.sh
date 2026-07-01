@@ -317,6 +317,11 @@ _install_php() {
                 > /dev/null 2>&1 || warn "PHP ${ver} kurulumunda bazı paketler atlandı"
         fi
 
+        # Kurulmadıysa (örn. Ubuntu 24.04 default repo'da php8.2 YOK — ondrej PPA
+        # gerekir; PPA eklenemezse apt atlar) bu sürümü atla. Aksi halde alttaki
+        # 'cat > /etc/php/${ver}/...' dizin yokluğunda set -e ile init'i patlatır.
+        [[ -d "/etc/php/${ver}/fpm/conf.d" ]] || { warn "PHP ${ver} kurulu değil — atlanıyor"; continue; }
+
         # PHP güvenlik ayarları
         cat > "/etc/php/${ver}/fpm/conf.d/99-srvctl-security.ini" << 'PHPINI'
 expose_php = Off
@@ -477,15 +482,20 @@ REDISACL
     chmod 600 /etc/redis/users.acl
     chown redis:redis /etc/redis/redis.conf /etc/redis/users.acl
 
-    systemctl enable redis-server > /dev/null 2>&1
-    systemctl restart redis-server
-
-    # Admin şifresini kaydet
-    if grep -q "REDIS_ADMIN_PASS" "${SRVCTL_CONF}" 2>/dev/null; then
+    # Admin şifresini restart'tan ÖNCE kaydet: 'systemctl restart' set -e altında
+    # non-zero dönerse (systemd notify timing) parola conf'a yazılmadan kaybolmasın
+    # → domain add redis ACL adımı WRONGPASS ile patlıyordu.
+    # ANCHOR şart: conf'ta '# REDIS_ADMIN_PASS=' yorum placeholder'ı var. Anchorsuz
+    # grep yorumu yakalar → sed '^REDIS_ADMIN_PASS=' ile eşleşmez → no-op → parola
+    # hiç yazılmaz → domain add redis ACL WRONGPASS. Yalnız AKTİF atamayı eşle.
+    if grep -q "^REDIS_ADMIN_PASS=" "${SRVCTL_CONF}" 2>/dev/null; then
         sed -i "s|^REDIS_ADMIN_PASS=.*|REDIS_ADMIN_PASS=${redis_admin_pass}|" "${SRVCTL_CONF}"
     else
         echo "REDIS_ADMIN_PASS=${redis_admin_pass}" >> "${SRVCTL_CONF}"
     fi
+
+    systemctl enable redis-server > /dev/null 2>&1
+    systemctl restart redis-server
 
     info "Redis admin şifresi: ${SRVCTL_CONF}"
 }

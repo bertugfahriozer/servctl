@@ -251,8 +251,11 @@ _require_owned_or_warn() {
 # chown macOS dev kutusunda başarısız olabilir → guard'lı; mod/varlık test edilir.
 secure_file() {
     local path="$1" mode="${2:-600}"
-    ( umask 077; : > "$path" 2>/dev/null || true )
-    [[ -e "$path" ]] || { umask 077; : > "$path"; }
+    # Dosyayı oluştur (yoksa) — MEVCUT içeriği KORU. 'touch' truncate ETMEZ;
+    # (eski ': >' mevcut dosyayı boşaltıyordu → yazımdan sonra çağrılınca içerik
+    #  kaybı: /root/.my.cnf, yedek artefaktları, migrate credentials).
+    ( umask 077; touch "$path" 2>/dev/null || true )
+    [[ -e "$path" ]] || { umask 077; touch "$path"; }
     chmod "$mode" "$path"
     chown root:root "$path" 2>/dev/null || true
 }

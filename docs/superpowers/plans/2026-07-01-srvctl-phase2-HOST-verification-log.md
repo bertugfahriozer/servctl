@@ -89,4 +89,55 @@ Sonuç: bu 3 düzeltmeyle `domain add` step 4 (abort) → step 7 (nginx -t başa
 - **AppArmor (T7a attach + T7b AppArmor audit):** orb'da AppArmor LSM yok → doğrulanamadı; gerçek 22.04 gerekir.
 - **Full domain-add tamamlanması:** #7 (mariadb-24.04) blokluyor → srvctl'in 22.04'te (init'in hedefi) veya 24.04-portundan sonra tamamlanmalı.
 
+---
+
+## Oturum 2 (2026-07-01) — 24.04 desteği: kalan bug'lar düzeltildi, full e2e TAMAMLANDI
+
+`feature/ubuntu-24.04-support` dalı. Ertelenen 24.04-porting maddeleri kovalandı; ikisi
+**severe/evrensel** çıktı (yalnız 24.04 değil, her deploy'u etkiler). Full `domain add`
+e2e artık 24.04'te uçtan uca tamamlanıyor.
+
+### DÜZELTİLDİ — bu oturum (feature/ubuntu-24.04-support)
+
+- **secure_file içeriği truncate ediyordu — SEVERE / EVRENSEL** (commit `fd33613`):
+  `secure_file` `: > "$path"` ile mevcut dosyayı **BOŞALTIYORDU**. İçerik-yazımından
+  SONRA çağrıldığı 3 yerde sessiz veri kaybı: boş yedek artefaktları, boş migrate
+  credentials, ve **/root/.my.cnf boşalması → mariadb root kilidi** (önceki turda #7
+  sanılan). `touch` ile değiştirildi (truncate etmez). Regresyon testi eklendi
+  (`tests/test_secure_fs.sh`, 12/12 geçer). **Bu, önceki #7'nin gerçek kök-nedeni.**
+
+- **REDIS_ADMIN_PASS conf'a yazılmıyordu — EVRENSEL** (commit `f84a15c`; önceki #2'nin
+  gerçek hali — "bug değil" değerlendirmesi YANLIŞTI). İki kök-neden:
+  1. **Anchorsuz grep tuzağı:** conf'ta `# REDIS_ADMIN_PASS=` yorum placeholder'ı var.
+     `grep -q "REDIS_ADMIN_PASS"` yorumu yakalıyor → sed `^REDIS_ADMIN_PASS=` ile
+     eşleşmiyor → no-op → parola conf'a HİÇ yazılmıyor. → `^REDIS_ADMIN_PASS=` anchor'landı.
+  2. **Sıra:** parola kaydı `systemctl restart redis-server`'dan SONRAYDI; restart set -e
+     altında non-zero dönerse fonksiyon parolayı yazmadan abort ediyordu. → kayıt
+     restart'tan ÖNCEYE alındı.
+  Etki: her kurulumda redis admin parolası conf'a yazılmıyor → `domain add` step 9
+  (redis ACL) WRONGPASS ile patlıyordu.
+
+- **#3 _install_php kurulmayan sürümde abort — 24.04** (commit `a1ed0ba`):
+  loop `for ver in 8.2 8.3`; 24.04 default repo'da php8.2 YOK. Kurulmazsa
+  `cat > /etc/php/8.2/fpm/conf.d/...` dizin yokluğunda set -e ile init'i patlatır.
+  → sürüm dizini yoksa `continue` ile atla.
+
+### FULL E2E — orb / Ubuntu 24.04, tamamı doğrulandı
+
+`srvctl domain add test.local --php=8.3 --no-ssl` → **"✅ Domain başarıyla eklendi"**
+(10/10 adım: user, dizinler+T1, chroot, php-fpm pool, nginx vhost+`nginx -t`, ssl-skip,
+apparmor-warn, DB `db_test_local`/`usr_test_local`, redis ACL, `.credentials`).
+
+Doğrulanan katmanlar (gerçek hardened domain üstünde):
+- **T1 ownership:** base `root:root 751`, `.credentials` `root:root 600`.
+- **Hardened marker:** `/usr/local/srvctl/state/test.local/hardened` yazılı; `_domain_is_hardened`=EVET.
+- **Fail-closed read gate:** doğru sahiplikte `read_credentials` exit=0; `.credentials`
+  non-root'a (web_test_local) chown edilince hardened domainde `read_credentials`
+  **exit≠0 (reddedildi)** → tamper kapısı çalışıyor.
+
+### HÂLÂ AÇIK
+- **#5 install.sh reinstall exit 1:** net kod bug'ı bulunamadı (tek `exit 1` symlink
+  doğrulama fail'inde). Belirsiz — gerçek 24.04'te temiz reinstall ile yeniden test gerek.
+- **AppArmor (T7a attach + T7b AppArmor audit):** orb'da LSM yok → gerçek 22.04 gerekir.
+
 Not: orb'da mariadb root kilitli kaldı (disposable test host); tekrar kullanım için mariadb reset gerekir.
