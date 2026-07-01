@@ -82,6 +82,15 @@ SYSCTL
     # ─── 4. SSH Hardening ───
     current=$((current + 1))
     step "${current}/${total}" "SSH güvenlik ayarları (Port: ${SSH_PORT})..."
+    # sshd_config.d drop-in dizini bazı minimal imajlarda GELMEZ → oluştur.
+    mkdir -p /etc/ssh/sshd_config.d
+    # Ana sshd_config bu dizini Include etmiyorsa EN BAŞA ekle (sshd first-match-wins;
+    # drop-in ana config'teki değerleri override edebilsin). Yoksa hardening yok sayılır.
+    if ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config 2>/dev/null; then
+        cp -a /etc/ssh/sshd_config /etc/ssh/sshd_config.srvctl-bak 2>/dev/null || true
+        { echo 'Include /etc/ssh/sshd_config.d/*.conf'; cat /etc/ssh/sshd_config; } \
+            > /etc/ssh/sshd_config.srvctl-tmp && mv /etc/ssh/sshd_config.srvctl-tmp /etc/ssh/sshd_config
+    fi
     cat > /etc/ssh/sshd_config.d/99-srvctl.conf << SSHCONF
 Port ${SSH_PORT}
 PermitRootLogin no
@@ -100,8 +109,15 @@ KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com
 MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
 SSHCONF
-    systemctl restart sshd 2>/dev/null || true
-    success "SSH hardening uygulandı"
+    # Restart ÖNCESİ config'i doğrula: hatalı sshd config'iyle restart edip
+    # kendini kilitlemeyi önle. Doğrulama başarısızsa drop-in'i geri al.
+    if sshd -t 2>/dev/null; then
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+        success "SSH hardening uygulandı (Port: ${SSH_PORT})"
+    else
+        rm -f /etc/ssh/sshd_config.d/99-srvctl.conf
+        warn "sshd config doğrulaması BAŞARISIZ — SSH hardening atlandı, mevcut SSH korundu"
+    fi
 
     # ─── 5. Firewall ───
     current=$((current + 1))
