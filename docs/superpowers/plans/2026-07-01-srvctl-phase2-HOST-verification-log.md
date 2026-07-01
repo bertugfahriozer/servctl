@@ -45,3 +45,24 @@ dev (chroot)    : root:root 755
 
 ## Sonuç
 AppArmor-dışı **tüm Faz 2 çekirdek mekanizmaları gerçek systemd Linux host'ta doğrulandı.** Kalan: (a) AppArmor parçaları için AppArmor-etkin 22.04 host; (b) full-stack uçtan-uca wiring koşumu.
+
+## Güncelleme — T1 provisioning wiring e2e + install/stack
+
+### T1 provisioning WIRING (domain add) — DOĞRULANDI ✓
+`srvctl domain add test.local --php=8.3 --no-ssl` gerçek host'ta (stack kurulu):
+- base `root:root 751`, public_html `web_test_local 750`, dev (chroot) `root 755`.
+- hardened marker yazıldı: `hardened <tarih> srvctl-1.0.0`.
+- web_test_local base'de dosya **oluşturamadı** (Permission denied) → RC1 provisioning düzeyinde kapalı.
+- web app `private/writable`'a **yazabildi** (kırılım yok).
+→ T1 keystone artık hem fonksiyon hem provisioning-entegrasyonu düzeyinde HOST-doğrulanmış.
+
+## 🐞 Staging'de bulunan PRE-EXISTING srvctl bug'ları (Faz 2 DEĞİL — ayrı iş)
+Bunlar Faz 2 değişiklikleri değil; srvctl'in mevcut kodunda, gerçek kurulumda ortaya çıkan hatalar:
+
+1. **Redis ACL yorum satırları — KRİTİK (güvenlik):** `_install_redis` `users.acl`'e `#` yorum satırları yazıyor; redis 7.x bunu reddediyor → `redis-server` HİÇ başlamıyor → "Redis ACL izolasyonu" katmanı gerçek deploy'da kırık. Düzeltme: aclfile'a yalnız `user ...` satırları yaz.
+2. **REDIS_ADMIN_PASS conf'a yazılmıyor:** `_install_redis` parolayı `users.acl`'e yazıyor ama `srvctl.conf`'a boş bırakıyor → domain add redis auth başarısız. Düzeltme: parolayı conf'a da yaz (tutarlı).
+3. **_install_php 8.2 hardcode:** DEFAULT_PHP_VERSION yerine 8.2 varsayıyor; 24.04'te (8.3) php security config uygulanmıyor. Düzeltme: sürümü config'den al.
+4. **php-fpm pool slowlog chroot-öncesi:** pool `slowlog = /logs/php-slow.log` chroot'tan önce çözülüyor → `php-fpm` pool başlatamıyor → domain add step 4'te abort. Düzeltme: slowlog'u chroot-öncesi var olan yola al veya kapat.
+5. **install.sh reinstall exit 1:** ilk kurulum OK, reinstall exit 1 (muhtemelen 22.04 OS-versiyon kontrolü 24.04'te) → dosyalar güncellenmiyor.
+
+Not: 1-2 numaralı bug'lar güvenlik-ilgili (Redis ACL izolasyonu çalışmıyor) ve 22.04'te de geçerli olabilir (redis 6/7 aclfile yorum kısıtı). Ayrı bir düzeltme işine değer.
