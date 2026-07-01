@@ -18,6 +18,7 @@ _srvctl() {
         'notify:Bildirim yapılandırması'
         'cloudflare:Cloudflare API'
         'ip:IP engelleme/izin listesi'
+        'trusted:Güvenilir edge IP senkronizasyonu'
         'user:Kullanıcı yönetimi (RBAC)'
         'plugin:Plugin sistemi'
         'webhook:Auto-deploy webhook'
@@ -83,6 +84,11 @@ _srvctl() {
                     local -a ip_cmds
                     ip_cmds=('ban:IP engelle' 'unban:Engel kaldır' 'whitelist:Beyaz liste' 'blacklist:Kara liste' 'list:Listele' 'geoblock:Ülke engeli')
                     _describe 'ip işlemi' ip_cmds
+                    ;;
+                trusted)
+                    local -a trusted_cmds
+                    trusted_cmds=('sync:Senkronize et' 'list:Güvenilir IPleri listele')
+                    _describe 'trusted işlemi' trusted_cmds
                     ;;
                 user)
                     local -a user_cmds
