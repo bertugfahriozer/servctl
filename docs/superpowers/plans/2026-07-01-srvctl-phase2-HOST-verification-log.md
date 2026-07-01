@@ -66,3 +66,27 @@ Bunlar Faz 2 değişiklikleri değil; srvctl'in mevcut kodunda, gerçek kurulumd
 5. **install.sh reinstall exit 1:** ilk kurulum OK, reinstall exit 1 (muhtemelen 22.04 OS-versiyon kontrolü 24.04'te) → dosyalar güncellenmiyor.
 
 Not: 1-2 numaralı bug'lar güvenlik-ilgili (Redis ACL izolasyonu çalışmıyor) ve 22.04'te de geçerli olabilir (redis 6/7 aclfile yorum kısıtı). Ayrı bir düzeltme işine değer.
+
+## Çözüm — bug'ların sınıflandırılması + düzeltmeler
+
+Staging e2e "sıfırdan kur" turu, srvctl'in **Ubuntu 24.04'te hiç test edilmediğini** ve bir zincir uyumsuzluk olduğunu ortaya çıkardı. İki sınıf:
+
+### DÜZELTİLDİ — evrensel bug'lar (22.04 dahil her deploy'u etkiler) — commit 90b1da3
+- **#1 Redis ACL yorumları (GÜVENLİK):** aclfile'a '#' yazılıyordu → redis başlamıyor → Redis ACL izolasyonu kırık. → yorumlar kaldırıldı.
+- **#4 php-fpm slowlog/access.log chroot-relative:** MASTER (chroot dışı) bulamıyor → pool başlamıyor. → gerçek yola alındı.
+- **#6 rate-profiles.conf install edilmiyor:** tüm rate profilleri "bilinmeyen". → install.sh kopyalıyor.
+Sonuç: bu 3 düzeltmeyle `domain add` step 4 (abort) → step 7 (nginx -t başarılı) ilerledi; base `root:root 751` + hardened marker e2e doğrulandı.
+
+### ERTELENDİ — 24.04-özgü porting (hedef OS 22.04'te olmaz; ayrı "24.04 desteği" işi)
+- **#7 mariadb root auth:** _install_mariadb 24.04'te root'u parola-moduna alıp /root/.my.cnf'i boş bırakıyor → root kilitli → domain add step 8 patlıyor.
+- **#3 _install_php 8.2:** 24.04'te 8.2 yok → security.ini yazımı uyarı veriyor (8.3 çalışıyor, non-fatal).
+- **#5 install.sh reinstall exit 1:** muhtemelen 22.04 OS-versiyon kontrolü.
+- **#2** gerçek bug değildi (kod REDIS_ADMIN_PASS'i conf'a doğru yazıyor; boş gözlem partial-run artefaktı).
+
+### Nihai durum
+- **T1 keystone (Faz 2): TAM DOĞRULANDI** — fonksiyon + provisioning e2e (`domain add` → base root:root 751 + marker + tamper-engelleme + nginx -t geçer).
+- **T3/T7a-cgroups/T7b-seccomp+parser:** gerçek systemd verisiyle doğrulandı.
+- **AppArmor (T7a attach + T7b AppArmor audit):** orb'da AppArmor LSM yok → doğrulanamadı; gerçek 22.04 gerekir.
+- **Full domain-add tamamlanması:** #7 (mariadb-24.04) blokluyor → srvctl'in 22.04'te (init'in hedefi) veya 24.04-portundan sonra tamamlanmalı.
+
+Not: orb'da mariadb root kilitli kaldı (disposable test host); tekrar kullanım için mariadb reset gerekir.
