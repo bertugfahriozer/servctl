@@ -84,7 +84,7 @@ _srvctl_completions() {
             ;;
         trusted)
             local trusted_cmds="sync list"
-            if [[ $COMP_CWORD -eq 2 ]]; then
+            if [[ ${COMP_CWORD} -eq 2 ]]; then
                 COMPREPLY=($(compgen -W "$trusted_cmds" -- "$cur"))
             fi
             ;;
