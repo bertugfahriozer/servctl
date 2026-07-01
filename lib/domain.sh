@@ -370,20 +370,19 @@ _domain_add() {
     mkdir -p "${base}/usr"/{lib,share/zoneinfo}
     mkdir -p "${base}/etc/ssl/certs"
 
-    # İzinler
-    chown -R "${web_user}:${web_user}" "${base}"
-    chmod 750 "${base}"
-    chmod 750 "${base}/public_html"
-    chmod 750 "${base}/private"
-    chmod 770 "${base}/tmp" "${base}/sessions"
-    chmod -R 770 "${base}/private/writable"
-    chmod 750 "${base}/logs"
-    chmod o-rwx "${base}"
+    # İzinler — Yeni sahiplik modeli (T1, RC1): base root:root 751, leaf'ler web_user.
+    # NOT: eski 'chmod o-rwx' + 'setfacl o::---' KALDIRILDI — base artık root:root ve
+    # web_user "other" olarak o+x (traverse) iznine ihtiyaç duyar; www-data da öyle.
+    _domain_apply_fs_ownership "${base}" "${web_user}"
+    # Yeni domain doğuştan hardened: marker yaz (fail-closed kapı hemen aktif).
+    secure_dir "${SRVCTL_STATE_DIR}/${domain}" 700
+    printf 'hardened %s srvctl-%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${SRVCTL_VERSION}" \
+        > "${SRVCTL_STATE_DIR}/${domain}/hardened"
+    chmod 600 "${SRVCTL_STATE_DIR}/${domain}/hardened"
 
-    # ACL
+    # ACL — www-data (nginx) public_html'i okuyabilsin (o::--- YOK; base o+x korunur)
     setfacl -R -m "u:www-data:rx" "${base}/public_html" 2>/dev/null || true
     setfacl -R -d -m "u:www-data:rx" "${base}/public_html" 2>/dev/null || true
-    setfacl -R -m "o::---" "${base}" 2>/dev/null || true
 
     success "Dizin yapısı hazır"
 
